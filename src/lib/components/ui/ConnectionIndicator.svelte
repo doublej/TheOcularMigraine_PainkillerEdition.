@@ -24,8 +24,12 @@
   let healthy = $derived(
     privilege === 'shell' && (mode !== 'desktop' || (connected && misses < MISS_LIMIT)),
   )
-  /** Only a working on-headset route has nothing to report. */
-  let silent = $derived(mode === 'native' && healthy)
+  /**
+   * Never silent on the headset. Hiding the bar once everything worked also removed the only way
+   * back into setup, while the last wizard screen was telling the user to tap it "any time" — so
+   * the promise was false in exactly the state finishing setup puts you in. It stays, quietly.
+   */
+  let silent = $derived(false)
   let reconnecting = $state(false)
 
   onMount(() => {
@@ -80,7 +84,7 @@
     class:healthy
     class:offline={!healthy && mode === 'desktop'}
     class:demo={!healthy && mode !== 'desktop'}
-    disabled={reconnecting || healthy}
+    disabled={reconnecting}
     onclick={handleTap}
     bind:offsetHeight={height}
   >
@@ -88,7 +92,7 @@
     {#if reconnecting}
       {t('conn.reconnecting')}
     {:else if healthy}
-      {t('conn.computer.ok')}
+      {mode === 'native' ? t('conn.headset.unlocked') : t('conn.computer.ok')}
     {:else if mode === 'desktop'}
       {t('conn.computer.down')}
     {:else if mode === 'native'}

@@ -225,8 +225,8 @@ export const en = {
   'common.applying': 'Applying…',
   'tune.device.noRead': 'No headset read yet — values below are this app’s guess',
   'tune.device.demo': 'Demo data — “{label}” came from this app’s fixtures, not a headset',
-  'tune.device.read': 'Read headset',
-  'tune.device.reading': 'Reading…',
+  'tune.device.read': 'Load current settings',
+  'tune.device.reading': 'Loading…',
   'tune.warn.cannotWrite': 'Nothing on this screen can change the headset right now.',
   'tune.warn.unknownHeadset': 'This headset was not recognised ({model}) — the panel size and rate list below are a fallback guess, not its capabilities. setprop takes an unsupported value without complaining, so check the result in the headset.',
   'tune.card.performance': 'Performance',
@@ -408,4 +408,6 @@ export const en = {
   'rec.toast.loaded': 'Loaded “{name}” — {summary}',
   'adb.propRefused': '{prop} did not take: the headset still reads {reads}',
   'adb.noValue': 'no value',
+  'conn.headset.unlocked': 'Unlocked. Tap for setup.',
+  'tune.device.readHint': 'Replaces everything on this screen with what the headset has set right now.',
 } as const

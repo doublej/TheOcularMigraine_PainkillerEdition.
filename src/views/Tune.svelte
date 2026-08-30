@@ -392,6 +392,8 @@
       {refreshing ? t('tune.device.reading') : t('tune.device.read')}
     </Button>
   </div>
+  <!-- The label alone cannot say that this overwrites the screen, and that is the surprising half. -->
+  <p class="read-hint">{t('tune.device.readHint')}</p>
 
   {#if !can.writeProps}
     <p class="warn">
@@ -650,6 +652,13 @@
 </div>
 
 <style>
+  .read-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
   .tune {
     padding: 0 16px 28px;
     display: flex;
