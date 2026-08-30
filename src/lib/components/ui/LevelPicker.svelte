@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../../i18n/index.svelte'
+
   let {
     value = $bindable(0),
     min = 0,
@@ -38,11 +40,13 @@
       {#if description}<span class="level-desc">{description}</span>{/if}
     </div>
     {#if unset}
-      <span class="level-unset">headset default</span>
+      <span class="level-unset">{t('common.headsetDefault')}</span>
     {:else}
       <span class="level-readout">
         <span class="level-value" style:color>{name || value}</span>
-        <span class="level-scale">{name ? `${value} of ${max}` : `of ${max}`}</span>
+        <span class="level-scale">
+          {name ? t('level.scaleNamed', { value, max }) : t('level.scale', { max })}
+        </span>
       </span>
     {/if}
   </div>
@@ -66,7 +70,7 @@
   {#if showDynamic}
     <label class="dynamic-toggle">
       <input type="checkbox" bind:checked={dynamic} onchange={() => onchange?.(value, dynamic)} />
-      <span>Auto &mdash; {unset ? 'the level' : name || value} is a cap, not a fixed clock</span>
+      <span>{t('level.auto', { what: unset ? t('level.autoUnset') : String(name || value) })}</span>
     </label>
   {/if}
 </div>

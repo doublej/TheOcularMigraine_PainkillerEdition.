@@ -28,8 +28,11 @@ import javax.crypto.Cipher;
  * explicitly approved.
  *
  * The public-key encoding below is the one place a silent bug hides: get it wrong and the headset
- * simply never shows its prompt, which looks identical to "the headset is not listening".
- * AdbKeyTest checks it against a key whose adb encoding is known.
+ * simply never shows its prompt, which looks identical to "the headset is not listening". The only
+ * check that settles it is adbd accepting the key — a structural self-test would only re-assert
+ * this file's own conventions, which is exactly what would be wrong. So: authorise once on a real
+ * headset, and `adb shell cat /data/misc/adb/adb_keys` should end with a line named
+ * ocular-migraine@headset.
  */
 public final class AdbKey {
 
@@ -68,13 +71,30 @@ public final class AdbKey {
     }
 
     /**
-     * adbd's token is already a SHA-1 digest, so this is a raw PKCS#1 v1.5 signing operation over
-     * the 20 bytes — not Signature.getInstance("SHA1withRSA"), which would hash them again.
+     * The ASN.1 DigestInfo header for SHA-1, which adb's signature is expected to carry.
+     *
+     * adb signs with OpenSSL's RSA_sign(NID_sha1, ...). That does not hash the token — it is already
+     * a 20-byte digest — but it does wrap it in this DigestInfo structure before padding. Signing
+     * the bare token instead produces a well-formed signature that adbd silently rejects, which
+     * looks from the outside exactly like an unauthorised key.
+     */
+    private static final byte[] SHA1_DIGEST_INFO = {
+        0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
+        0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
+    };
+
+    /**
+     * Signs adbd's challenge the way adb does: DigestInfo-wrapped, PKCS#1 v1.5 padded, no second
+     * hash. Not Signature.getInstance("SHA1withRSA") — that would hash the already-hashed token.
      */
     public byte[] sign(byte[] token) throws Exception {
+        byte[] wrapped = new byte[SHA1_DIGEST_INFO.length + token.length];
+        System.arraycopy(SHA1_DIGEST_INFO, 0, wrapped, 0, SHA1_DIGEST_INFO.length);
+        System.arraycopy(token, 0, wrapped, SHA1_DIGEST_INFO.length, token.length);
+
         Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
         cipher.init(Cipher.ENCRYPT_MODE, (PrivateKey) pair.getPrivate());
-        return cipher.doFinal(token);
+        return cipher.doFinal(wrapped);
     }
 
     /**

@@ -154,7 +154,10 @@ public final class AdbClient implements AutoCloseable {
 
         while (true) {
             AdbMessage message = AdbMessage.readFrom(in);
-            if (message.arg1 != localId && message.command != AdbMessage.A_CLSE) continue;
+            // Strictly this stream's traffic, CLSE included. The connection is reused for every
+            // command, so a CLSE still in flight from the previous one would otherwise end this
+            // one the moment it opened — which returned an empty string and no exit status.
+            if (message.arg1 != localId) continue;
 
             if (message.command == AdbMessage.A_OKAY) {
                 remoteId = message.arg0;

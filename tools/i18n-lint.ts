@@ -12,12 +12,21 @@ let total = 0
 
 for await (const file of glob.scan('.')) {
   const source = await Bun.file(file).text()
-  const markup = source
+  let markup = source
     .replace(/<script[\s\S]*?<\/script>/g, '')
     .replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\{[^{}]*\}/g, '')
-    .replace(/<[^>]*>/g, '\n')
+
+  // Innermost-first until it stops changing. A single pass only strips non-nested braces, so
+  // `{t('key', { n: 1 })}` left `{t('key', )}` behind and every interpolated call was reported as
+  // bare copy. That is worse than a plain false positive: it pushes you away from interpolation,
+  // which is the one construct that keeps a whole sentence translatable.
+  let previous = ''
+  while (markup !== previous) {
+    previous = markup
+    markup = markup.replace(/\{[^{}]*\}/g, '')
+  }
+  markup = markup.replace(/<[^>]*>/g, '\n')
 
   const hits = markup
     .split('\n')

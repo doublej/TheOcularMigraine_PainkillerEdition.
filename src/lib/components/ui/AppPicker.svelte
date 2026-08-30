@@ -3,6 +3,7 @@
   import * as adb from '../../bridge/adb'
   import type { NativeApp } from '../../plugins/shell-exec'
   import { focusTrap } from '../../actions/focusTrap'
+  import { t } from '../../i18n/index.svelte'
 
   let {
     open = $bindable(false),
@@ -131,19 +132,19 @@
       />
       <div class="pkg-list">
         {#if loading}
-          <p class="status">Finding installed apps...</p>
+          <p class="status">{t('apps.finding')}</p>
         {:else if loadError}
           <p class="status error">Couldn't read the app list — {loadError}</p>
-          <button class="retry-btn" onclick={retryLoad}>Retry</button>
+          <button class="retry-btn" onclick={retryLoad}>{t('common.retry')}</button>
         {:else if packages.length === 0}
           {#if adb.getConnectionMode() === 'mock' || !adb.isServerConnected()}
             <p class="status error">Couldn't read the app list — check the headset connection</p>
-            <button class="retry-btn" onclick={retryLoad}>Retry</button>
+            <button class="retry-btn" onclick={retryLoad}>{t('common.retry')}</button>
           {:else}
-            <p class="status">No third-party apps installed on this headset</p>
+            <p class="status">{t('apps.none')}</p>
           {/if}
         {:else if filtered.length === 0}
-          <p class="status">No apps matched "{filter}"</p>
+          <p class="status">{t('apps.noMatch', { filter })}</p>
         {:else}
           {#each filtered as app (app.packageName)}
             <button

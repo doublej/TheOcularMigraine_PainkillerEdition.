@@ -1,15 +1,24 @@
 <script lang="ts">
+  import { t } from '../../i18n/index.svelte'
+
   let {
     value = $bindable(),
     options,
-    label = 'Refresh rate',
+    label = '',
     unset = false,
+    extendedMax = 0,
     onchange,
   }: {
     value: number
     /** Rates this headset actually supports — required, so no caller inherits another model's list. */
     options: number[]
     label?: string
+    /**
+     * A rate above everything Meta documents for this model, which the headset reported anyway.
+     * 0 when there is none. Called out rather than blended in: an extended rate is not the same
+     * kind of promise as a documented one.
+     */
+    extendedMax?: number
     /** The headset has no value for this prop — show "headset default" instead of a stale number. */
     unset?: boolean
     onchange?: (value: number) => void
@@ -20,9 +29,9 @@
 
 <div class="freq-picker">
   <div class="freq-header">
-    <span class="freq-label">{label}</span>
+    <span class="freq-label">{label || t('freq.label')}</span>
     {#if unset}
-      <span class="freq-unset">headset default</span>
+      <span class="freq-unset">{t('common.headsetDefault')}</span>
     {:else}
       <span class="freq-readout">{value}<span class="hz">Hz</span></span>
     {/if}
@@ -42,12 +51,22 @@
        fallback guess, and the app must not assert a capability it never read. -->
   {#if unsupported}
     <p class="freq-warning">
-      {value} Hz is set, but it is not one of {options.join(' / ')} Hz &mdash; pick one above.
+      {t('freq.unsupported', { value, options: options.join(' / ') })}
     </p>
+  {/if}
+  {#if extendedMax}
+    <p class="freq-extended">{t('freq.extended', { hz: extendedMax })}</p>
   {/if}
 </div>
 
 <style>
+  .freq-extended {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
   .freq-picker {
     padding: 10px 0;
   }

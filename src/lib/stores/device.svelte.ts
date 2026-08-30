@@ -63,16 +63,38 @@ export interface ModelCaps {
    * the user pick anyway — setprop will not argue back, so the app has to.
    */
   known: boolean
+  /**
+   * True when `refreshRates` was confirmed against what the headset itself reports, rather than
+   * taken from the model-name table above. A name is not a measurement, and this is the difference.
+   */
+  ratesMeasured: boolean
+  /**
+   * The highest rate the headset reports, when that is above everything Meta documents for the
+   * model. Meta lists extended rates (any integer above 120, up to 207) as Quest 3 only — so a
+   * headset that reports one has had its ceiling raised, and hiding that would be the same failure
+   * as inventing one. 0 when there is nothing beyond the documented set.
+   */
+  extendedMax: number
 }
 
+/**
+ * The rates Meta documents as selectable, per model.
+ *
+ * Straight from the "Set Display Refresh Rates" table in Meta's Horizon OS developer docs. The
+ * previous list here was guessed and wrong on four of the five models: it omitted 80, 96 and 100 Hz
+ * everywhere they exist, so three quarters of the Quest 3's usable rates were never offered.
+ *
+ * 60 Hz is deliberately absent. The table marks it "media apps only" on Quest 1 and 2, and this app
+ * tunes VR — offering it would be offering a rate the runtime will not give a VR title.
+ */
 // Matched on a lowercased substring: ro.product.model carries prefixes such as 'Meta Quest 3'.
 const MODEL_CAPS: { match: string; caps: ModelCaps }[] = [
-  { match: 'quest pro', caps: { label: 'Quest Pro', refreshRates: [72, 90], nativeWidth: 1800, nativeHeight: 1920, known: true } },
+  { match: 'quest pro', caps: { label: 'Quest Pro', refreshRates: [72, 80, 90], nativeWidth: 1800, nativeHeight: 1920, known: true, ratesMeasured: false, extendedMax: 0 } },
   // The 3S keeps the Quest 2 LCD stack; only the 3 has the 2064x2208 panels.
-  { match: 'quest 3s', caps: { label: 'Quest 3S', refreshRates: [72, 90, 120], nativeWidth: 1832, nativeHeight: 1920, known: true } },
-  { match: 'quest 3', caps: { label: 'Quest 3', refreshRates: [72, 90, 120], nativeWidth: 2064, nativeHeight: 2208, known: true } },
-  { match: 'quest 2', caps: { label: 'Quest 2', refreshRates: [60, 72, 90, 120], nativeWidth: 1832, nativeHeight: 1920, known: true } },
-  { match: 'quest', caps: { label: 'Quest 1', refreshRates: [72], nativeWidth: 1440, nativeHeight: 1600, known: true } },
+  { match: 'quest 3s', caps: { label: 'Quest 3S', refreshRates: [72, 80, 90, 96, 100, 120], nativeWidth: 1832, nativeHeight: 1920, known: true, ratesMeasured: false, extendedMax: 0 } },
+  { match: 'quest 3', caps: { label: 'Quest 3', refreshRates: [72, 80, 90, 96, 100, 120], nativeWidth: 2064, nativeHeight: 2208, known: true, ratesMeasured: false, extendedMax: 0 } },
+  { match: 'quest 2', caps: { label: 'Quest 2', refreshRates: [72, 80, 90, 96, 100, 120], nativeWidth: 1832, nativeHeight: 1920, known: true, ratesMeasured: false, extendedMax: 0 } },
+  { match: 'quest', caps: { label: 'Quest 1', refreshRates: [72], nativeWidth: 1440, nativeHeight: 1600, known: true, ratesMeasured: false, extendedMax: 0 } },
 ]
 
 const UNKNOWN_CAPS: ModelCaps = {
@@ -81,11 +103,52 @@ const UNKNOWN_CAPS: ModelCaps = {
   nativeWidth: 1832,
   nativeHeight: 1920,
   known: false,
+  ratesMeasured: false,
+  extendedMax: 0,
 }
 
 export function getModelCaps(model: string): ModelCaps {
   const needle = model.toLowerCase()
   return MODEL_CAPS.find(m => needle.includes(m.match))?.caps ?? UNKNOWN_CAPS
+}
+
+/**
+ * What the headset said when asked, or [] when it was never asked or could not answer.
+ *
+ * Display.getSupportedModes() needs no permission, so even an unelevated headset install can read
+ * this — which makes the model-name table a fallback rather than the source of truth.
+ */
+let reportedRates = $state<number[]>([])
+
+/**
+ * The model's documented rates, narrowed to the ones this headset actually reports.
+ *
+ * Two different mistakes are avoided here. Offering a documented rate the headset does not report
+ * would assert a capability that was never seen. Offering every rate it does report would be worse
+ * in the other direction: a Quest 3 enumerates all 49 integers from 72 to 120, and a 49-button
+ * picker is not a truthful UI, it is an unusable one. So the buttons are the documented rungs,
+ * confirmed present — plus the reported ceiling when it exceeds anything Meta documents.
+ */
+export function resolveCaps(model: string, reported: number[]): ModelCaps {
+  const base = getModelCaps(model)
+  if (reported.length === 0) return base
+
+  const confirmed = base.refreshRates.filter(hz => reported.includes(hz))
+  const documentedMax = Math.max(...base.refreshRates)
+  const reportedMax = Math.max(...reported)
+  const extendedMax = reportedMax > documentedMax ? reportedMax : 0
+  // An extended ceiling becomes one extra rung rather than every integer up to it.
+  const rates = extendedMax ? [...confirmed, extendedMax] : confirmed
+
+  // A headset that reports nothing in common with its own model's table is stranger than an
+  // unknown model, so fall back rather than render an empty picker.
+  if (rates.length === 0) return base
+
+  return { ...base, refreshRates: rates, ratesMeasured: true, extendedMax }
+}
+
+export function getCapsForModel(model: string): ModelCaps {
+  return resolveCaps(model, reportedRates)
 }
 
 let device = $state<DeviceInfo>({
@@ -202,7 +265,7 @@ export function getPrivilege(): Privilege { return connectionPrivilege }
 export function getAbilities(): Abilities { return abilities }
 
 /** Capabilities of the headset that is actually attached — check `.known` before stating any of them. */
-export function getCaps(): ModelCaps { return getModelCaps(device.model) }
+export function getCaps(): ModelCaps { return resolveCaps(device.model, reportedRates) }
 
 /**
  * True when everything in getDevice() came from mock fixtures rather than a headset. The views
@@ -264,12 +327,13 @@ export async function refreshDevice() {
     adb.getWifiInfo(),
     adb.getFirmwareVersion(),
     adb.getCurrentDisplaySettings(),
+    adb.getReportedRefreshRates(),
   ])
   // Every read failing is the bridge being down, not six broken props: that is still an error.
   const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
   if (failed.length === results.length) throw failed[0].reason
 
-  const [model, battery, storage, wifi, firmware, readback] = results
+  const [model, battery, storage, wifi, firmware, readback, rates] = results
   const value = <T>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null)
   // A failed read is unknown, never the last known value: the views render '' and 0 as '—'.
   device.model = value(model) ?? ''
@@ -281,6 +345,8 @@ export async function refreshDevice() {
   device.ssid = value(wifi)?.ssid ?? ''
   device.signalStrength = value(wifi)?.signal ?? 0
   device.firmwareVersion = value(firmware) ?? ''
+  // [] means "not read", never "supports nothing" — resolveCaps falls back to the table on empty.
+  reportedRates = value(rates) ?? []
   // Everything above may have come from fixtures; the views need to know before they show it.
   deviceInfoIsFixture = adb.isFixtureRead()
 
@@ -289,7 +355,7 @@ export async function refreshDevice() {
   const read = deviceInfoIsFixture ? null : value(readback)
   if (read) {
     // Props the headset never had fall back to what this model supports, and stay flagged as unset.
-    const fallback = displayDefaultsFor(getModelCaps(device.model))
+    const fallback = displayDefaultsFor(resolveCaps(device.model, reportedRates))
     const seeded = Object.fromEntries(read.unset.map(key => [key, fallback[key]]))
     Object.assign(display, read.values, seeded)
     unsetDisplayKeys = read.unset

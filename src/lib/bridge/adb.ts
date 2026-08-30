@@ -528,7 +528,12 @@ export async function getCurrentDisplaySettings(): Promise<DisplayReadback> {
 
   readNumber('resolutionWidth', w, 512, 4096)
   readNumber('resolutionHeight', h, 512, 4096)
-  readNumber('refreshRate', rr, 60, 120)
+  // 240 rather than 120: this is a "is that a plausible refresh rate" sanity check, not a claim
+  // about any headset. Meta documents extended rates on Quest 3 as any integer above 120 up to 207,
+  // and up to 240 with display scaling — clamping at 120 reported those back as unset, i.e. as if
+  // the headset had no value at all. What a given headset will actually accept is decided by the
+  // rates it reports, in resolveCaps, not here.
+  readNumber('refreshRate', rr, 60, 240)
   readNumber('cpuLevel', cpu, 0, 4)
   readNumber('gpuLevel', gpu, 0, 4)
   readNumber('ffrLevel', ffr, 0, 4)
