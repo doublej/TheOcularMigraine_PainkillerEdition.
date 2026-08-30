@@ -3,6 +3,7 @@ package com.ocularmigraine.mcp;
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 import com.ocularmigraine.mcp.plugins.AppsPlugin;
+import com.ocularmigraine.mcp.plugins.AutoProfilePlugin;
 import com.ocularmigraine.mcp.plugins.DeviceInfoPlugin;
 import com.ocularmigraine.mcp.plugins.ShellExecPlugin;
 
@@ -13,6 +14,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShellExecPlugin.class);
         registerPlugin(DeviceInfoPlugin.class);
         registerPlugin(AppsPlugin.class);
+        registerPlugin(AutoProfilePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

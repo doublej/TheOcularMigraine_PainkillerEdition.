@@ -16,7 +16,7 @@
   import AppPicker from '../lib/components/ui/AppPicker.svelte'
   import {
     getDevice, getDisplay, getCaps, getUnsetDisplayKeys, isDemoMode, updateDisplay,
-    getProfiles, addProfile, removeProfile, refreshDevice,
+    getProfiles, addProfile, removeProfile, setProfileAuto, refreshDevice,
     isDeviceInfoFixture, getServerConnected, getAbilities, getPrivilege,
     type DisplaySettings, type GameProfile,
   } from '../lib/stores/device.svelte'
@@ -24,6 +24,8 @@
   import { t, type PlainKey } from '../lib/i18n/index.svelte'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
+  import * as autoProfile from '../lib/bridge/auto-profile'
+  import type { AutoProfileStatus } from '../lib/plugins/auto-profile'
   import * as persistence from '../lib/stores/persistence'
 
   // Rungs are multipliers of the detected panel, never literals: every rung then holds the
@@ -106,6 +108,11 @@
   let scale = $state(1)
   const scaledW = $derived(Math.round(caps.nativeWidth * scale))
   const scaledH = $derived(Math.round(caps.nativeHeight * scale))
+
+  // What the launch watcher is actually doing, asked of the service rather than remembered here:
+  // usage access can be revoked and the privileged channel can drop, both from outside this app.
+  let autoStatus = $state<AutoProfileStatus>({ usageAccess: false, running: false, elevated: false })
+  let autoBusy = $state(false)
 
   let refreshing = $state(false)
   let clearing = $state(false)
@@ -243,6 +250,35 @@
     if (showCustom) {
       const snapped = Math.round((display.resolutionWidth / caps.nativeWidth) * 20) / 20
       scale = Math.min(1.4, Math.max(0.5, snapped))
+    }
+  }
+
+  async function readAutoStatus() {
+    autoStatus = await autoProfile.getStatus()
+  }
+
+  /** Both directions report back what the service says afterwards, never what was asked for. */
+  async function toggleWatching() {
+    autoBusy = true
+    try {
+      autoStatus = autoStatus.running
+        ? await autoProfile.stopWatching()
+        : await autoProfile.startWatching()
+    } catch (e) {
+      showToast(t('toast.actionFailed', { what: t('tune.autoApply.label'), error: describe(e) }), 'error')
+    } finally {
+      autoBusy = false
+    }
+  }
+
+  async function grantUsageAccess() {
+    autoBusy = true
+    try {
+      autoStatus = await autoProfile.grantUsageAccess()
+    } catch (e) {
+      showToast(t('toast.actionFailed', { what: t('tune.autoApply.grant'), error: describe(e) }), 'error')
+    } finally {
+      autoBusy = false
     }
   }
 
@@ -391,6 +427,7 @@
 
   onMount(() => {
     if (!hasReadDevice) void refresh()
+    void readAutoStatus()
     return disarm
   })
 
@@ -474,6 +511,35 @@
     <p class="hint">{t('tune.profiles.hint')}</p>
     <!-- The original applies a profile when the game itself starts; this one cannot, and says so. -->
     <p class="hint">{t('tune.profiles.manualHint')}</p>
+    <div class="auto-apply">
+      {#if !autoProfile.canAutoApply()}
+        <p class="hint">{t('tune.autoApply.headsetOnly')}</p>
+      {:else}
+        <label class="auto-chip" class:unset={!autoStatus.usageAccess}>
+          <input
+            type="checkbox"
+            checked={autoStatus.running}
+            disabled={autoBusy || !autoStatus.usageAccess}
+            onchange={toggleWatching}
+          />
+          {t('tune.autoApply.label')}
+        </label>
+        <p class="hint">{t('tune.autoApply.hint')}</p>
+        {#if !autoStatus.usageAccess}
+          <p class="hint">{t('tune.autoApply.needsAccess')}</p>
+          <Button size="sm" disabled={autoBusy || !autoStatus.elevated} onclick={grantUsageAccess}>
+            {t('tune.autoApply.grant')}
+          </Button>
+        {:else if !autoStatus.elevated}
+          <p class="warn">{t('tune.autoApply.needsElevation')}</p>
+        {:else if autoStatus.running}
+          <p class="hint">{t('tune.autoApply.watching')}</p>
+        {/if}
+        {#if autoStatus.lastMessage}
+          <p class="hint"><span class="mono">{t('tune.autoApply.lastRun')} {autoStatus.lastMessage}</span></p>
+        {/if}
+      {/if}
+    </div>
     {#if profiles.length === 0}
       <p class="empty">{t('tune.profiles.empty')}</p>
     {:else}
@@ -482,7 +548,14 @@
           <div class="profile-item">
             <div class="profile-head">
               <span class="profile-name">{profile.name}</span>
-              {#if profile.isDefault}<span class="badge">{t('tune.profiles.default')}</span>{/if}
+              <label class="auto-flag" class:on={profile.isDefault}>
+                <input
+                  type="checkbox"
+                  checked={profile.isDefault}
+                  onchange={(e) => setProfileAuto(profile.id, e.currentTarget.checked)}
+                />
+                {t('tune.profiles.auto')}
+              </label>
             </div>
             <span class="row-meta mono">{summarize(profile.display)}</span>
             <div class="row-actions">
@@ -1034,19 +1107,6 @@
     color: var(--danger);
   }
 
-  .badge {
-    font-family: var(--font-display);
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--primary);
-    background: var(--primary-glow);
-    padding: 3px 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
-  }
-
   .preset-item {
     display: flex;
     align-items: stretch;
@@ -1133,6 +1193,49 @@
 
   .preview-list .mono {
     color: var(--primary);
+  }
+
+  .auto-apply {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0 12px;
+    padding: 10px 12px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  /* A per-profile switch, not a badge: it is the thing that arms a game, so it has to be tappable. */
+  .auto-flag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 10px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .auto-flag.on {
+    color: var(--primary);
+    background: var(--primary-glow);
+    border-color: color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+
+  .auto-flag input {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
   }
 
   .name-row {

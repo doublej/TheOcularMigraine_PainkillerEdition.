@@ -1,4 +1,5 @@
 import * as adb from '../bridge/adb'
+import * as autoProfile from '../bridge/auto-profile'
 import type { Mode } from '../bridge/adb'
 import { abilitiesFor, type Abilities, type Privilege } from '../bridge/capabilities'
 import * as persistence from './persistence'
@@ -255,6 +256,10 @@ let profiles = $state<GameProfile[]>(
     .filter((p): p is GameProfile => p !== null),
 )
 
+// Rebuilt at launch as well as on change: it is a mirror, and one that is only written on change
+// drifts the moment anything edits the list from outside this module.
+void autoProfile.syncProfiles(profiles)
+
 let connectionMode = $state<Mode>('mock')
 let serverConnected = $state(true)
 let deviceInfoIsFixture = $state(false)
@@ -319,15 +324,35 @@ export function updateRecording(patch: Partial<RecordingSettings>) {
 
 export function addProfile(profile: GameProfile) {
   profiles.push(profile)
-  persistence.saveGameProfiles(profiles)
+  saveProfiles()
 }
 
 export function removeProfile(id: string) {
   const idx = profiles.findIndex(p => p.id === id)
   if (idx >= 0) {
     profiles.splice(idx, 1)
-    persistence.saveGameProfiles(profiles)
+    saveProfiles()
   }
+}
+
+/**
+ * Which profile a game gets on its own. One per package, matching the original: any others stay
+ * manual and bypass it. The watcher only ever sees the ones marked here.
+ */
+export function setProfileAuto(id: string, auto: boolean) {
+  const target = profiles.find(p => p.id === id)
+  if (!target) return
+  for (const p of profiles) {
+    if (p.packageName === target.packageName) p.isDefault = false
+  }
+  target.isDefault = auto
+  saveProfiles()
+}
+
+/** Disk and the launch watcher hold the same list, so a profile can never be saved but not watched. */
+function saveProfiles() {
+  persistence.saveGameProfiles(profiles)
+  void autoProfile.syncProfiles(profiles)
 }
 
 export async function refreshDevice() {
