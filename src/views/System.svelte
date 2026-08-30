@@ -94,7 +94,10 @@
     // The access confirm is a panel, not a button, so it does not disarm itself when its card
     // stops rendering: without this, leaving Apps and coming back re-offers a live Apply.
     requestedMode = null
-    if (next === 'apps' && !accessReadAt) loadPackageState()
+    if (next === 'apps' && !accessReadAt) {
+      loadPackageState()
+      void loadStartupApp()
+    }
   }
 
   /** Every headset write reports both ways: an invisible failure looks exactly like a success. */
@@ -458,18 +461,41 @@
 
   // --- Favourite app ---
 
-  let favouriteApp = $state(persistence.getStartupApp())
+  let favouriteApp = $state(persistence.getFavouriteApp())
   let favouritePickerOpen = $state(false)
+  /** Read from the headset, not assumed from the picker: a reinstall clears one and not the other. */
+  let startupEnabled = $state(false)
+
+  async function loadStartupApp() {
+    if (!nativeMode) return
+    startupEnabled = (await adb.getStartupApp()) !== ''
+  }
 
   function selectFavouriteApp(pkg: string) {
     favouriteApp = pkg
-    persistence.setStartupApp(pkg)
+    persistence.setFavouriteApp(pkg)
     favouritePickerOpen = false
+    // The stored package is the one that boots, so an armed startup has to follow the change.
+    if (startupEnabled) void applyStartup(true)
   }
 
   function clearFavouriteApp() {
     favouriteApp = ''
-    persistence.setStartupApp('')
+    persistence.setFavouriteApp('')
+    if (startupEnabled) void applyStartup(false)
+  }
+
+  /**
+   * Throws on refusal, so the Toggle puts itself back rather than promising a launch that will not
+   * happen. What the headset stored is what is reported, never what was asked for.
+   */
+  async function applyStartup(enabled: boolean) {
+    const stored = await adb.setStartupApp(enabled ? favouriteApp : '')
+    startupEnabled = stored !== ''
+    showToast(
+      stored ? t('system.toast.startupSet', { pkg: stored }) : t('system.toast.startupCleared'),
+      'success',
+    )
   }
 
   // --- Access control ---
@@ -990,6 +1016,13 @@
         {t('system.favourite.hint')}
       </p>
       <p class="pkg-line">{favouriteApp || t('system.app.noneChosen')}</p>
+      <Toggle
+        bind:checked={startupEnabled}
+        label={t('system.favourite.startup')}
+        description={nativeMode ? t('system.favourite.startupHint') : t('system.favourite.startupOffHeadset')}
+        disabled={!favouriteApp || !nativeMode || !!pending}
+        onchange={applyStartup}
+      />
       <div class="btn-row wrap">
         <Button size="sm" onclick={() => favouritePickerOpen = true}>
           {favouriteApp ? t('system.app.change') : t('system.app.choose')}

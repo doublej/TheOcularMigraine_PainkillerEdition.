@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.BitmapDrawable;
@@ -23,10 +22,10 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.ocularmigraine.mcp.StartupLauncher;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.util.List;
 
 /**
  * App listing, launching and installing without a shell.
@@ -79,7 +78,7 @@ public class AppsPlugin extends Plugin {
             return;
         }
 
-        Intent intent = resolveLaunchIntent(pkg);
+        Intent intent = StartupLauncher.intentFor(getContext(), pkg);
         if (intent == null) {
             call.reject("No launchable activity in " + pkg);
             return;
@@ -168,25 +167,27 @@ public class AppsPlugin extends Plugin {
     }
 
     /**
-     * Quest apps are not always reachable through CATEGORY_LAUNCHER — the 2D panel convention uses
-     * CATEGORY_INFO, which is why this app's own manifest declares both.
+     * The app the headset opens after a restart. Stored here and acted on by BootLaunchReceiver,
+     * so nothing is claimed the boot itself has not done yet.
+     *
+     * A package with no launchable activity is refused rather than stored: it would sit in the UI
+     * looking set and do nothing at every boot.
      */
-    private Intent resolveLaunchIntent(String pkg) {
-        PackageManager pm = getContext().getPackageManager();
-        Intent launcher = pm.getLaunchIntentForPackage(pkg);
-        if (launcher != null) return launcher;
+    @PluginMethod
+    public void setStartupApp(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        if (pkg == null) pkg = "";
+        if (!pkg.isEmpty() && StartupLauncher.intentFor(getContext(), pkg) == null) {
+            call.reject("No launchable activity in " + pkg);
+            return;
+        }
+        StartupLauncher.set(getContext(), pkg);
+        call.resolve(new JSObject().put("packageName", StartupLauncher.get(getContext())));
+    }
 
-        Intent info = new Intent(Intent.ACTION_MAIN);
-        info.addCategory(Intent.CATEGORY_INFO);
-        info.setPackage(pkg);
-        List<ResolveInfo> matches = pm.queryIntentActivities(info, 0);
-        if (matches.isEmpty()) return null;
-
-        ResolveInfo match = matches.get(0);
-        Intent intent = new Intent(Intent.ACTION_MAIN);
-        intent.addCategory(Intent.CATEGORY_INFO);
-        intent.setClassName(match.activityInfo.packageName, match.activityInfo.name);
-        return intent;
+    @PluginMethod
+    public void getStartupApp(PluginCall call) {
+        call.resolve(new JSObject().put("packageName", StartupLauncher.get(getContext())));
     }
 
     /** '' rather than a broken image when an icon cannot be rendered — the row still has its label. */

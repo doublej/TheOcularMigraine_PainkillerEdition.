@@ -91,6 +91,9 @@ export interface AppsPlugin {
   list(options?: { icons?: boolean }): Promise<{ apps: NativeApp[] }>
   launch(options: { packageName: string }): Promise<{ launched: string }>
   install(options: { path: string }): Promise<{ handedOff: boolean }>
+  /** '' clears it. Answers with what is stored, which is not always what was asked for. */
+  setStartupApp(options: { packageName: string }): Promise<{ packageName: string }>
+  getStartupApp(): Promise<{ packageName: string }>
   openSettings(): Promise<void>
   killBackground(): Promise<{ asked: number }>
 }

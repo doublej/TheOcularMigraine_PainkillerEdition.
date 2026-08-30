@@ -29,11 +29,30 @@
 
         <!-- Applies a game's profile at the moment that game starts. Not exported: nothing outside
              this app has any business starting it. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- No foregroundServiceType: the app targets SDK 32, where the type is not required and
              declaring specialUse would pull in a permission it does not need. -->
         <service
             android:name=".LaunchWatcherService"
             android:exported="false" />
+
+        <!-- Opens the chosen app once the headset has finished starting. Exported because the
+             sender is the system; it does nothing for any other broadcast. -->
+        <receiver
+            android:name=".BootLaunchReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

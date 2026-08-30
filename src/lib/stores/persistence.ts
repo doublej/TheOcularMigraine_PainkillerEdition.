@@ -36,7 +36,7 @@ const KEYS = {
   REC_PROFILES: 'tom_recording_profiles',
   SCRIPTS: 'tom_user_scripts',
   SETTINGS_BACKUP: 'tom_settings_backup',
-  STARTUP_APP: 'tom_startup_app',
+  FAVOURITE_APP: 'tom_startup_app',
   KIOSK_APP: 'tom_kiosk_app',
   WHITELIST: 'tom_whitelist',
   BLACKLIST: 'tom_blacklist',
@@ -115,8 +115,8 @@ export function saveSettingsBackup(props: Record<string, string>): SettingsSnaps
 
 export const loadSettingsBackup = () => loadSettingsBackups()[0]?.props ?? null
 
-export const getStartupApp = () => load<string>(KEYS.STARTUP_APP, '')
-export const setStartupApp = (pkg: string) => save(KEYS.STARTUP_APP, pkg)
+export const getFavouriteApp = () => load<string>(KEYS.FAVOURITE_APP, '')
+export const setFavouriteApp = (pkg: string) => save(KEYS.FAVOURITE_APP, pkg)
 
 export const getKioskApp = () => load<string>(KEYS.KIOSK_APP, '')
 export const setKioskApp = (pkg: string) => save(KEYS.KIOSK_APP, pkg)

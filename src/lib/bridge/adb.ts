@@ -410,6 +410,26 @@ export async function launchApp(packageName: string): Promise<void> {
   await shell(`monkey -p ${packageName} 1`)
 }
 
+/**
+ * The app the headset opens after a restart, or '' for none.
+ *
+ * A BOOT_COMPLETED receiver, not the system's home activity: replacing Quest Home needs the shell
+ * uid and strands anyone whose choice does not come back. Only the headset build has anywhere to
+ * store it, so off the headset this is '' rather than a setting that would never fire.
+ */
+export async function getStartupApp(): Promise<string> {
+  await modeReady
+  if (mode !== 'native') return ''
+  return (await Apps.getStartupApp()).packageName
+}
+
+/** Returns what is actually stored afterwards. Throws when the headset has nothing to launch for it. */
+export async function setStartupApp(packageName: string): Promise<string> {
+  await modeReady
+  if (mode !== 'native') return ''
+  return (await Apps.setStartupApp({ packageName })).packageName
+}
+
 export async function forceStop(packageName: string): Promise<void> {
   await shell(`am force-stop ${packageName}`)
 }
