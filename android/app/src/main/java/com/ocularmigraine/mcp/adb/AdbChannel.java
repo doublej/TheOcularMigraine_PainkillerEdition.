@@ -182,10 +182,16 @@ public final class AdbChannel {
     /**
      * Spends the first connection on the two permissions that outlive it.
      *
-     * Both are granted to the app itself, so they survive every later boot without the channel:
-     * WRITE_SECURE_SETTINGS lets the app turn wireless debugging back on by itself, and the
-     * usage-stats appop is what lets the launch watcher see a game start. Asking here means asking
-     * once, while there is privilege to ask with, rather than at the moment each is needed.
+     * All three are held by the app itself, so they survive every later boot without the channel:
+     * WRITE_SECURE_SETTINGS lets the app turn wireless debugging back on by itself, the usage-stats
+     * appop is what lets the launch watcher see a game start, and the doze exemption is what keeps
+     * that watcher alive. Asking here means asking once, while there is privilege to ask with,
+     * rather than at the moment each is needed.
+     *
+     * The doze line is not housekeeping. petermg's install notes single it out: the Quest
+     * "optimizes" this app soon after install, which kills it in the background and "prevents the
+     * app from being able to initiate custom gaming profiles". It is the difference between the
+     * launch watcher working and quietly dying an hour later.
      *
      * The port itself is handled in elevate() on the TypeScript side, deliberately not through
      * setprop(), so it is not repeated here.
@@ -198,6 +204,7 @@ public final class AdbChannel {
         String[] commands = {
             "pm grant " + pkg + " android.permission.WRITE_SECURE_SETTINGS",
             "appops set " + pkg + " android:get_usage_stats allow",
+            "dumpsys deviceidle whitelist +" + pkg,
         };
         for (String command : commands) {
             try {
