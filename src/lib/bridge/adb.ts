@@ -561,8 +561,10 @@ export async function getCurrentDisplaySettings(): Promise<DisplayReadback> {
   // the headset had no value at all. What a given headset will actually accept is decided by the
   // rates it reports, in resolveCaps, not here.
   readNumber('refreshRate', rr, 60, 240)
-  readNumber('cpuLevel', cpu, 0, 4)
-  readNumber('gpuLevel', gpu, 0, 4)
+  // 5, not 4: level 5 is the boost rung — more performance for battery and heat. Clamping at 4
+  // read a headset that really was set to 5 back as "no value at all". FFR has no rung above 4.
+  readNumber('cpuLevel', cpu, 0, 5)
+  readNumber('gpuLevel', gpu, 0, 5)
   readNumber('ffrLevel', ffr, 0, 4)
   readFlag('cpuDynamic', cpuD)
   readFlag('gpuDynamic', gpuD)

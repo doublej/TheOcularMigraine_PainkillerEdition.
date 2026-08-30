@@ -226,7 +226,7 @@ export const en = {
   'tune.auto.cpu': 'Auto CPU',
   'tune.auto.gpu': 'Auto GPU',
   'tune.auto.ffr': 'Auto foveation',
-  'tune.perf.hint': 'Auto makes the level a ceiling, not a fixed clock. Higher CPU/GPU is smoother in busy scenes, hotter and shorter on battery; Foveation (FFR) softens only the outer edges of the picture to free up GPU — raise it when a game stutters.',
+  'tune.perf.hint': 'Auto makes the level a ceiling, not a fixed clock. Higher CPU/GPU is smoother in busy scenes, hotter and shorter on battery, and 5 is the boost rung — the most performance for the most battery; Foveation (FFR) softens only the outer edges of the picture to free up GPU — raise it when a game stutters.',
   'tune.perf.autoUnsetHint': 'A dash instead of a tick means the headset has no value for that one yet; the level above stays on the headset’s own default either way.',
   'tune.card.display': 'Display',
   'tune.refresh.label': 'Screen refresh rate',

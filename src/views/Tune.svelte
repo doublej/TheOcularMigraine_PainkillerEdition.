@@ -531,6 +531,7 @@
       <div class="level-slot slot-cpu">
         <LevelPicker
           label={t('tune.cpu.label')}
+          max={5}
           bind:value={pending.cpuLevel}
           dynamic={pending.cpuDynamic}
           showDynamic={false}
@@ -542,6 +543,7 @@
       <div class="level-slot slot-gpu">
         <LevelPicker
           label={t('tune.gpu.label')}
+          max={5}
           bind:value={pending.gpuLevel}
           dynamic={pending.gpuDynamic}
           showDynamic={false}
