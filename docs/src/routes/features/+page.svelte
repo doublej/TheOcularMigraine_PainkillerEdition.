@@ -36,7 +36,7 @@
       id: 'recording',
       title: 'Recording',
       body:
-        'The built-in capture is fixed at whatever Meta chose. This is the same capture with the numbers exposed: bitrate, size, frame rate, which eye is recorded, and how much of the field of view to keep. Recording both eyes gives a side-by-side file, and the 3D metadata injector makes it upload to YouTube VR as actual 3D rather than a squashed pair.',
+        'The built-in capture is fixed at whatever Meta chose. This is the same capture with the numbers exposed: bitrate, size, frame rate, which eye is recorded, and how much of the field of view to keep. Recording both eyes gives a side-by-side file that nothing in the container declares as 3D, which is why it uploads as a squashed pair. One button writes a copy carrying the st3d box that says left-right, ready for YouTube VR. Nothing is re-encoded and the recording itself is never touched.',
       lines: [
         { cmd: 'setprop debug.oculus.capture.width 1920' },
         { cmd: 'setprop debug.oculus.capture.height 1080' },
@@ -51,7 +51,7 @@
       id: 'profiles',
       title: 'Per-game profiles',
       body:
-        'A profile is the whole set — clocks, foveation, resolution, refresh rate — saved against a package name. Launch that game and its settings go back before the first frame, so a heavy sim and a light social app do not have to share one compromise.',
+        'A profile is the whole set — clocks, foveation, resolution, refresh rate — saved against a package name. A watcher sees that package come to the foreground and writes its settings then and there, so a heavy sim and a light social app do not have to share one compromise. It needs usage access, which is granted once.',
       lines: [
         { cmd: 'am start -n com.beatgames.beatsaber/.MainActivity' },
         { out: 'profile "Beat Saber" applied' },
@@ -62,22 +62,24 @@
       id: 'system',
       title: 'The rest of the toolbox',
       body:
-        'Install APKs from the headset, set a startup app, lock the headset to a single app with a password (kiosk mode), keep a blacklist or a whitelist of what can launch, share a folder over HTTP, and drop into a plain ADB console when you would rather type the command yourself.',
+        'Install APKs from the headset, pick an app for it to open after a restart, lock it to a single app (kiosk mode, on a headset provisioned for it), keep a blacklist or a whitelist of what can launch, share a folder over HTTP with optional uploads, and drop into a plain ADB console when you would rather type the command yourself.',
       lines: [
         { cmd: 'pm install -r /sdcard/Download/game.apk' },
         { out: 'Success' },
-        { cmd: 'settings put secure default_home com.threelab.lightning' },
-        { out: 'startup app set' },
+        { cmd: 'setprop persist.oculus.kiosk_mode 1' },
+        { out: 'single app mode set — applies after a restart' },
       ],
     },
     {
       id: 'connection',
       title: 'How it reaches the headset',
       body:
-        'The app is the ADB client. It talks to the headset it is installed on, over the loopback interface, so there is no PC and no cable once it is set up. That privilege is the whole reason it is a sideload: an app that can rewrite system properties is not something the Meta Horizon Store hands out. Until it is unlocked, every screen says so plainly instead of pretending a setting took.',
+        'The app is the ADB client. It talks to adbd on the headset it is installed on, over the loopback interface. A computer opens that port once with adb tcpip 5555; the app then writes persist.adb.tcp.port, which adbd reads at every boot, so the port comes back on its own and the cable never returns — a restart asks only for the headset\'s own approval prompt. That privilege is the whole reason it is a sideload: an app that can rewrite system properties is not something the Meta Horizon Store hands out. Until it is unlocked, every screen says so plainly instead of pretending a setting took.',
       lines: [
-        { cmd: 'adb pair 127.0.0.1:37129' },
-        { out: 'Successfully paired' },
+        { cmd: 'adb tcpip 5555' },
+        { out: 'restarting in TCP mode port: 5555' },
+        { cmd: 'setprop persist.adb.tcp.port 5555' },
+        { out: 'the headset reopens it at every boot' },
         { cmd: 'getprop debug.oculus.tomProbe' },
         { out: 'ok — settings can reach the headset' },
       ],
@@ -145,7 +147,7 @@
         <tbody>
           <tr>
             <td>Needs a computer</td>
-            <td>No</td>
+            <td>Once, to unlock</td>
             <td>Yes, every time</td>
             <td>No</td>
           </tr>
@@ -175,7 +177,7 @@
           </tr>
           <tr>
             <td>Survives a reboot</td>
-            <td>Yes</td>
+            <td>Port reopens itself, approve one prompt</td>
             <td>Re-authorise each boot</td>
             <td>n/a</td>
           </tr>
@@ -193,7 +195,7 @@
       <p>
         Concept, feature design and all the ADB research by
         <a href="https://github.com/petermg/TheOcularMigraineMCP" target="_blank" rel="noopener noreferrer">petermg</a>.
-        This fork changed the interface and nothing else. <a href="{base}/">Back to the start &rarr;</a>
+        This fork rebuilt the interface and most of the feature set; the README says what is not ported. <a href="{base}/">Back to the start &rarr;</a>
       </p>
     </div>
   </section>

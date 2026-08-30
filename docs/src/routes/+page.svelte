@@ -60,7 +60,7 @@
     {
       title: 'Record on your terms',
       description:
-        'Bitrate, size, frame rate, which eye, and how much of the field of view to keep. Stereo audio on Quest 2 and 3.',
+        'Bitrate, size, frame rate, which eye, and how much of the field of view to keep.',
       lines: [
         { cmd: 'setprop debug.oculus.capture.width 1920' },
         { cmd: 'setprop debug.oculus.capture.height 1080' },
@@ -73,7 +73,7 @@
     {
       title: 'Save it against a game',
       description:
-        'A profile is the whole set above, tied to a package name. Launch the game and the app puts its settings back before the first frame.',
+        'A profile is the whole set above, tied to a package name. Start the game and the app sees it come to the foreground and puts its settings back.',
       lines: [
         { cmd: 'am start -n com.beatgames.beatsaber/.MainActivity' },
         { out: 'profile "Beat Saber" applied — CPU 3 · GPU 4 · 120 Hz · 100%' },
@@ -92,7 +92,7 @@
       icon: '◐',
       title: 'Runs on the headset',
       description:
-        'The app is the ADB client. It talks to the headset it is installed on, so there is no PC, no cable and no second machine in the loop.',
+        'The app is the ADB client. It talks to the headset it is installed on. A computer opens the port once; after that the headset reopens it at every boot, so no cable comes back.',
     },
     {
       icon: '⌁',
@@ -110,7 +110,7 @@
       icon: '⏺',
       title: 'Recording that is yours',
       description:
-        'Bitrate, resolution, frame rate, recording eye and FOV crop. Inject 3D metadata so a side-by-side capture uploads to YouTube VR correctly.',
+        'Bitrate, resolution, frame rate, recording eye and FOV crop. Mark a both-eyes capture as 3D and it uploads to YouTube VR as stereo — written as a copy, with the recording left alone.',
     },
     {
       icon: '⛯',
@@ -122,7 +122,7 @@
       icon: '⚙',
       title: 'The rest of the toolbox',
       description:
-        'APK installs, kiosk mode, startup app, access control lists, a file-sharing web server and a plain ADB console when you want the raw thing.',
+        'APK installs, single app mode, an app to open after a restart, access control lists, a folder shared over HTTP and a plain ADB console when you want the raw thing.',
     },
   ]
 
@@ -157,7 +157,7 @@
       <p class="edition"><span class="brace">&#123;</span>Painkiller Edition<span class="brace">&#125;</span></p>
       <p class="tagline">
         Change resolution, CPU and GPU levels, foveation and recording settings on a Meta Quest —
-        from inside the headset, with no PC in the loop.
+        from inside the headset, with a PC needed once and never again.
       </p>
 
       <div class="hero-actions">

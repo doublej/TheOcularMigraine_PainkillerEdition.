@@ -21,13 +21,17 @@ bun run install:quest  # adb install debug APK
 **State**: Svelte 5 runes (`$state`/`$derived`) in `.svelte.ts` files with getter/setter exports — not Svelte stores.
 
 **Key modules**:
-- `lib/bridge/adb.ts` — All device control. `Capacitor.isNativePlatform()` switches between `ShellExec.exec()` (native) and mock responses (web)
-- `lib/plugins/shell-exec.ts` — Capacitor ShellExec plugin interface
+- `lib/bridge/adb.ts` — All device control, across three routes: `native` (ShellExec on the headset), `desktop` (`server.ts` proxying `adb shell`) and `mock` (fixtures in the browser)
+- `lib/bridge/capabilities.ts` — The second axis: what a route may actually *do*. `native` starts at privilege `app` and is promoted to `shell` only by a probe that writes a prop and reads it back
+- `lib/plugins/shell-exec.ts` — Interfaces for all five Capacitor plugins: ShellExec, DeviceInfo, Apps, FileServer, Video
+- `lib/i18n/en.ts` — Every user-facing string, and the source of truth for the key type
 - `lib/stores/device.svelte.ts` — Device, display, recording, game profile state + interfaces
 - `lib/stores/navigation.svelte.ts` — Tab state
 - `lib/stores/persistence.ts` — localStorage: presets, profiles, scripts, app configs
 
-**UI components** (`lib/components/ui/`): Card, Button, Slider, Toggle, LevelPicker, FrequencyPicker, AppPicker — use `$props()` with `$bindable()`.
+**UI components** (`lib/components/ui/`): Card, Button, Slider, Toggle, LevelPicker, FrequencyPicker, AppPicker, CapabilityMatrix, ConnectionIndicator, Toast — use `$props()` with `$bindable()`. `components/setup/SetupWizard.svelte` is the two-step unlock flow.
+
+**Native side** (`android/app/src/main/java/com/ocularmigraine/mcp/`): a hand-written ADB client (`adb/`) that unlocks the headset over loopback, `LaunchWatcherService` (applies a game profile when that game starts), `FileServer` + `SafePath` (share a folder over HTTP), `Mp4Stereo` (marks a capture as 3D), `BootLaunchReceiver` + `StartupLauncher` (open an app after a restart). `SafePath` and `Mp4Stereo` have no Android imports and carry a `main()`, so both run on a desktop JVM.
 
 ## Conventions
 
