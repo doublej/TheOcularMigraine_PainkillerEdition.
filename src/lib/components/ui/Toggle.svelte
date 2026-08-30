@@ -1,36 +1,87 @@
 <script lang="ts">
+  import { showToast } from '../../stores/toast.svelte'
+
   let {
     checked = $bindable(false),
     label = '',
     description = '',
     disabled = false,
+    confirm = '',
     onchange,
   }: {
     checked?: boolean
     label?: string
     description?: string
     disabled?: boolean
-    onchange?: (checked: boolean) => void
+    /** Non-empty: every flip needs a second tap, and this says what that flip will do. */
+    confirm?: string
+    onchange?: (checked: boolean) => void | Promise<void>
   } = $props()
+
+  let armed = $state(false)
+  let pending = $state(false)
+  let armTimer: ReturnType<typeof setTimeout> | undefined
+
+  function disarm() {
+    clearTimeout(armTimer)
+    armed = false
+  }
+
+  // Arming must not outlive the moment or the view: a stray second tap minutes later, or after
+  // the tab is switched away and back, must not walk straight through the confirm.
+  $effect(() => disarm)
+
+  // The switch must not claim a state the device never took, so the flip is held open until
+  // onchange settles and reverted if it throws.
+  async function flip() {
+    const previous = checked
+    checked = !checked
+    if (!onchange) return
+    pending = true
+    try {
+      await onchange(checked)
+    } catch (err) {
+      checked = previous
+      showToast(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      pending = false
+    }
+  }
+
+  async function handleTap() {
+    if (confirm && !armed) {
+      clearTimeout(armTimer)
+      armed = true
+      armTimer = setTimeout(() => (armed = false), 5000)
+      return
+    }
+    disarm()
+    await flip()
+  }
 </script>
 
-<label class="toggle" class:disabled>
-  <div class="toggle-text">
+<button
+  type="button"
+  role="switch"
+  aria-checked={checked}
+  class="toggle"
+  class:disabled={disabled || pending}
+  disabled={disabled || pending}
+  onclick={handleTap}
+  onblur={disarm}
+>
+  <span class="toggle-text">
     {#if label}<span class="toggle-label">{label}</span>{/if}
-    {#if description}<span class="toggle-desc">{description}</span>{/if}
-  </div>
-  <button
-    role="switch"
-    aria-checked={checked}
-    aria-label={label}
-    {disabled}
-    class="toggle-switch"
-    class:on={checked}
-    onclick={() => { if (!disabled) { checked = !checked; onchange?.(checked) } }}
-  >
+    {#if armed}
+      <span class="toggle-confirm">{confirm}. Tap again to confirm.</span>
+    {:else if description}
+      <span class="toggle-desc">{description}</span>
+    {/if}
+  </span>
+  <span class="toggle-switch" class:on={checked}>
     <span class="toggle-thumb"></span>
-  </button>
-</label>
+  </span>
+</button>
 
 <style>
   .toggle {
@@ -38,7 +89,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    width: 100%;
+    min-height: 44px;
     padding: 6px 0;
+    background: none;
+    border: 0;
+    text-align: left;
     cursor: pointer;
   }
 
@@ -65,6 +121,11 @@
     color: var(--text-muted);
   }
 
+  .toggle-confirm {
+    font-size: 13px;
+    color: var(--warning);
+  }
+
   .toggle-switch {
     position: relative;
     width: 52px;
@@ -72,7 +133,6 @@
     background: var(--border);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
-    cursor: pointer;
     flex-shrink: 0;
     transition: all var(--duration) var(--ease-out);
   }

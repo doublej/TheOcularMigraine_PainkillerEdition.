@@ -2,8 +2,11 @@
   let {
     value = $bindable(0),
     min = 0,
-    max = 5,
+    max = 4,
     label = '',
+    description = '',
+    names,
+    unset = false,
     dynamic = $bindable(false),
     showDynamic = true,
     color = 'var(--primary)',
@@ -13,6 +16,11 @@
     min?: number
     max?: number
     label?: string
+    description?: string
+    /** Optional segment names, index 0 = min. Falls back to bare integers when omitted. */
+    names?: string[]
+    /** The headset has no value for this prop — show "headset default" instead of a stale number. */
+    unset?: boolean
     dynamic?: boolean
     showDynamic?: boolean
     color?: string
@@ -20,29 +28,45 @@
   } = $props()
 
   const levels = $derived(Array.from({ length: max - min + 1 }, (_, i) => i + min))
+  const name = $derived(names?.[value - min] ?? '')
 </script>
 
 <div class="level-picker">
   <div class="level-header">
-    <span class="level-label">{label}</span>
-    <span class="level-value" style:color>{value}</span>
+    <div class="level-text">
+      <span class="level-label">{label}</span>
+      {#if description}<span class="level-desc">{description}</span>{/if}
+    </div>
+    {#if unset}
+      <span class="level-unset">headset default</span>
+    {:else}
+      <span class="level-readout">
+        <span class="level-value" style:color>{name || value}</span>
+        <span class="level-scale">{name ? `${value} of ${max}` : `of ${max}`}</span>
+      </span>
+    {/if}
   </div>
-  <div class="level-buttons">
+  <div class="level-buttons" class:capped={showDynamic && dynamic}>
     {#each levels as level}
       <button
         class="level-btn"
-        class:active={value === level}
+        class:active={!unset && value === level}
         style:--active-color={color}
+        aria-label={names ? `${label} ${names[level - min] ?? level} (level ${level})` : undefined}
         onclick={() => { value = level; onchange?.(level, dynamic) }}
       >
-        {level}
+        {#if names}
+          <span class="level-btn-name">{names[level - min] ?? level}</span>
+        {:else}
+          {level}
+        {/if}
       </button>
     {/each}
   </div>
   {#if showDynamic}
     <label class="dynamic-toggle">
       <input type="checkbox" bind:checked={dynamic} onchange={() => onchange?.(value, dynamic)} />
-      <span>Dynamic</span>
+      <span>Auto &mdash; {unset ? 'the level' : name || value} is a cap, not a fixed clock</span>
     </label>
   {/if}
 </div>
@@ -55,8 +79,16 @@
   .level-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
+    gap: 10px;
     margin-bottom: 10px;
+  }
+
+  .level-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
 
   .level-label {
@@ -65,36 +97,69 @@
     color: var(--text);
   }
 
+  .level-desc {
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+  }
+
+  .level-readout {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   .level-value {
     font-family: var(--font-mono);
     font-size: 18px;
     font-weight: 700;
   }
 
+  .level-scale {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .level-unset {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
   .level-buttons {
     display: flex;
-    gap: 0;
+    /* Five 44px segments need ~225px. In a narrower column the strip wraps into rows of
+       full-size buttons rather than shrinking them to 19px — these are the primary controls. */
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--border);
     border-radius: var(--radius);
     overflow: hidden;
     border: 1px solid var(--border);
+    transition: opacity var(--duration) var(--ease-out);
+  }
+
+  /* Dynamic on: the strip is a ceiling the runtime moves under, not the running level */
+  .level-buttons.capped {
+    opacity: 0.55;
   }
 
   .level-btn {
-    flex: 1;
+    /* Grows to share the row, never below a thumb. The 1px flex gap paints the segment
+       hairlines, so wrapped rows are separated the same way the segments are. */
+    flex: 1 1 44px;
+    min-width: 44px;
     height: 44px;
     background: var(--surface-elevated);
     border: none;
-    border-right: 1px solid var(--border);
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
     transition: all var(--duration-fast) var(--ease-out);
-  }
-
-  .level-btn:last-child {
-    border-right: none;
   }
 
   .level-btn:hover {
@@ -108,11 +173,23 @@
     box-shadow: 0 0 12px color-mix(in srgb, var(--active-color) 20%, transparent);
   }
 
+  .level-btn-name {
+    display: block;
+    padding: 0 2px;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .dynamic-toggle {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 10px;
+    width: 100%;
+    min-height: 44px;
     font-size: 13px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -122,5 +199,6 @@
     accent-color: var(--primary);
     width: 16px;
     height: 16px;
+    flex-shrink: 0;
   }
 </style>

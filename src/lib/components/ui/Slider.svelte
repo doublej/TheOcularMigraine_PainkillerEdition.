@@ -17,14 +17,32 @@
     color?: string
   } = $props()
 
-  const pct = $derived(((value - min) / (max - min)) * 100)
+  // A device readback or a saved preset can hand us a number that is out of range or off the
+  // step grid (a headset reporting 1832 on a 512/32 grid). The browser snaps the thumb but not
+  // the bound value, so the readout and the thumb drift apart — snap once here instead.
+  const decimals = $derived(String(step).split('.')[1]?.length ?? 0)
+  const safe = $derived(snapToRange(value))
+  const pct = $derived(((safe - min) / (max - min)) * 100)
+
+  function snapToRange(n: number): number {
+    if (!Number.isFinite(n)) return min
+    const snapped = min + Math.round((n - min) / step) * step
+    return Number(Math.min(max, Math.max(min, snapped)).toFixed(decimals))
+  }
+
+  // The clamp has to reach the binding, not just the pixels: a fovCrop of 80 saved by the old
+  // max={100} slider under the same localStorage key renders "40%" but would still put 0.8 on
+  // the wire. snapToRange is idempotent, so this settles in one pass and never loops.
+  $effect(() => {
+    if (value !== safe) value = safe
+  })
 
   function decrement() {
-    value = Math.max(min, value - step)
+    value = snapToRange(safe - step)
   }
 
   function increment() {
-    value = Math.min(max, value + step)
+    value = snapToRange(safe + step)
   }
 </script>
 
@@ -32,25 +50,26 @@
   <div class="slider-header">
     <span class="slider-label">{label}</span>
     <span class="slider-value" style:color>
-      {value}{unit}
+      {safe}{unit}
     </span>
   </div>
   <div class="slider-row">
-    <button class="stepper" onclick={decrement} disabled={value <= min} aria-label="Decrease {label}">
+    <button class="stepper" onclick={decrement} disabled={safe <= min} aria-label="Decrease {label}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h8"/></svg>
     </button>
-    <div class="slider-track">
+    <div class="slider-track" style:--pct="{pct}%" style:--color={color}>
       <input
         type="range"
         {min}
         {max}
         {step}
-        bind:value
-        style:--pct="{pct}%"
-        style:--color={color}
+        value={safe}
+        oninput={(e) => (value = e.currentTarget.valueAsNumber)}
+        aria-label={label}
+        aria-valuetext="{safe}{unit}"
       />
     </div>
-    <button class="stepper" onclick={increment} disabled={value >= max} aria-label="Increase {label}">
+    <button class="stepper" onclick={increment} disabled={safe >= max} aria-label="Increase {label}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h8M8 4v8"/></svg>
     </button>
   </div>
@@ -87,8 +106,8 @@
   }
 
   .stepper {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -123,17 +142,39 @@
   .slider-track {
     flex: 1;
     position: relative;
+    height: 44px;
+  }
+
+  /* The visible 6px track is painted here so the input can be a transparent 44px drag band
+     on top of it — a thumb-wide target without a thumb-wide bar. */
+  .slider-track::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 3px;
+    background: linear-gradient(to right, var(--color) 0%, var(--color) var(--pct), var(--border) var(--pct), var(--border) 100%);
   }
 
   input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
+    position: relative;
+    display: block;
     width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: linear-gradient(to right, var(--color) 0%, var(--color) var(--pct), var(--border) var(--pct), var(--border) 100%);
+    height: 44px;
+    padding: 19px 0;
+    background: transparent;
     outline: none;
     cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    background: transparent;
   }
 
   input[type="range"]::-webkit-slider-thumb {
@@ -141,6 +182,7 @@
     appearance: none;
     width: 22px;
     height: 22px;
+    margin-top: -8px;
     border-radius: 50%;
     background: var(--text);
     box-shadow: 0 0 0 4px var(--bg), 0 2px 8px rgba(0, 0, 0, 0.4);

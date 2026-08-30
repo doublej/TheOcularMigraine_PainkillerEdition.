@@ -87,6 +87,6 @@
     height: 2px;
     background: var(--primary);
     border-radius: 0 0 2px 2px;
-    box-shadow: 0 0 8px rgba(91, 158, 244, 0.3);
+    box-shadow: var(--glow-primary);
   }
 </style>

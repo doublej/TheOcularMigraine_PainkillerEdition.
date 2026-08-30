@@ -1,30 +1,50 @@
 <script lang="ts">
   let {
-    value = $bindable(90),
-    options = [60, 72, 90, 120],
-    label = 'Refresh Rate',
+    value = $bindable(),
+    options,
+    label = 'Refresh rate',
+    unset = false,
     onchange,
   }: {
-    value?: number
-    options?: number[]
+    value: number
+    /** Rates this headset actually supports — required, so no caller inherits another model's list. */
+    options: number[]
     label?: string
+    /** The headset has no value for this prop — show "headset default" instead of a stale number. */
+    unset?: boolean
     onchange?: (value: number) => void
   } = $props()
+
+  const unsupported = $derived(!unset && !options.includes(value))
 </script>
 
 <div class="freq-picker">
-  <span class="freq-label">{label}</span>
+  <div class="freq-header">
+    <span class="freq-label">{label}</span>
+    {#if unset}
+      <span class="freq-unset">headset default</span>
+    {:else}
+      <span class="freq-readout">{value}<span class="hz">Hz</span></span>
+    {/if}
+  </div>
   <div class="freq-options">
     {#each options as hz}
       <button
         class="freq-btn"
-        class:active={value === hz}
+        class:active={!unset && value === hz}
         onclick={() => { value = hz; onchange?.(hz) }}
       >
         {hz}<span class="hz">Hz</span>
       </button>
     {/each}
   </div>
+  <!-- Never "this headset only runs …": when the model is unrecognised this list is the caller's
+       fallback guess, and the app must not assert a capability it never read. -->
+  {#if unsupported}
+    <p class="freq-warning">
+      {value} Hz is set, but it is not one of {options.join(' / ')} Hz &mdash; pick one above.
+    </p>
+  {/if}
 </div>
 
 <style>
@@ -32,12 +52,32 @@
     padding: 10px 0;
   }
 
+  .freq-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
   .freq-label {
-    display: block;
     font-size: 15px;
     font-weight: 500;
     color: var(--text);
-    margin-bottom: 10px;
+  }
+
+  .freq-readout {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+
+  .freq-unset {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
   }
 
   .freq-options {
@@ -85,5 +125,12 @@
     font-size: 11px;
     font-weight: 400;
     opacity: 0.5;
+  }
+
+  .freq-warning {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--warning);
   }
 </style>
