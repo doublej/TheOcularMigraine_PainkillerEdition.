@@ -41,7 +41,29 @@ for await (const file of glob.scan('.')) {
   }
 }
 
-console.log(`\n${total} bare strings in markup`)
+// Markup was only ever half of it. A toast or a thrown error is the copy a user reads at the exact
+// moment something went wrong, and it sat outside this lint long enough for "0 bare strings in
+// markup" to get reported as "all copy is in en.ts", which was not true.
+const speakers = /(showToast|throw new Error)\(\s*(['"`])(.*?)\2/gs
+let scriptTotal = 0
+
+for await (const file of new Glob('src/**/*.{svelte,ts}').scan('.')) {
+  if (file.includes('/i18n/')) continue
+  const source = await Bun.file(file).text()
+  const hits = [...source.matchAll(speakers)]
+    .map(m => m[3])
+    // Two letters in a row is prose; a bare interpolation or symbol is not.
+    .filter(text => /[A-Za-z]{2}/.test(text))
+
+  if (hits.length) {
+    scriptTotal += hits.length
+    console.log(`${file}: ${hits.length} in script`)
+    for (const hit of hits) console.log(`  ${hit.slice(0, 100)}`)
+  }
+}
+
+console.log(`\n${total} bare strings in markup, ${scriptTotal} in toasts and thrown errors`)
+total += scriptTotal
 // A gate now that the count is zero: any new copy in markup fails the build rather than quietly
 // bypassing the i18n table it was all just moved into.
 process.exit(total === 0 ? 0 : 1)

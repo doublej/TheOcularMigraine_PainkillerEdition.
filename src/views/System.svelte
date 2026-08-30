@@ -65,7 +65,7 @@
    * the alternative is a backup full of invented props and a library swept against six mock names.
    */
   function assertRealRead() {
-    if (adb.isFixtureRead()) throw new Error('No headset attached — nothing was read from one')
+    if (adb.isFixtureRead()) throw new Error(t('system.toast.noHeadsetRead'))
   }
 
   /** Arming outlives neither the moment, the section nor the view: a stray second tap must not walk through. */
@@ -103,7 +103,7 @@
     pending = key
     try {
       const message = await action()
-      if (isDemoMode()) showToast(`${message} (demo — no headset attached)`, 'info')
+      if (isDemoMode()) showToast(t('system.toast.demoSuffix', { message }), 'info')
       else showToast(message, 'success')
     } catch (e) {
       showToast(describeError(e), 'error')
@@ -296,7 +296,7 @@
       assertRealRead()
       // Only the props holding a value are stored, so the tally has to come from the snapshot, not the read.
       const snapshot = persistence.saveSettingsBackup(props)
-      if (!snapshot) throw new Error('Nothing to back up — this headset has no tweaks set')
+      if (!snapshot) throw new Error(t('system.toast.nothingToBackUp'))
       backups = persistence.loadSettingsBackups()
       restoreIndex = 0
       return `Backed up ${Object.keys(snapshot.props).length} tweaks`
@@ -306,7 +306,7 @@
   function restoreSettings() {
     runAction('restore', async () => {
       const props = selectedBackup?.props
-      if (!props) throw new Error('No backup to restore')
+      if (!props) throw new Error(t('system.toast.noBackup'))
       let written = 0
       for (const [key, value] of Object.entries(props)) {
         // A blanked prop reads back empty, and `setprop key` with no value is a usage error that
@@ -369,7 +369,7 @@
     if (!APK_PATH.test(path)) {
       installOutput = 'That does not look like a path to an .apk file.'
       installFailed = true
-      showToast('Enter a full path ending in .apk', 'error')
+      showToast(t('system.toast.needApkPath'), 'error')
       return
     }
     installOutput = 'Installing…'
@@ -426,7 +426,7 @@
    * this writes persist.oculus.kiosk_app, which is the very prop that button overwrites.
    */
   async function applyKiosk(enabled: boolean) {
-    if (enabled && !kioskApp) throw new Error('Choose an app before locking the headset to it')
+    if (enabled && !kioskApp) throw new Error(t('system.toast.needKioskApp'))
     kioskBusy = true
     try {
       await adb.setprop('persist.oculus.kiosk_mode', enabled ? '1' : '0')
@@ -436,10 +436,10 @@
       // Without this the fixture read-back blames a device-owner headset for there being no headset.
       assertRealRead()
       if (readBack !== (enabled ? '1' : '0')) {
-        throw new Error(`The headset did not keep the setting (reads "${readBack || 'empty'}") — this needs a device-owner headset`)
+        throw new Error(t('system.toast.kioskRefused', { readBack: readBack || t('system.toast.kioskEmpty') }))
       }
       kioskUnknown = false
-      showToast(enabled ? 'Single app mode set — it applies after a headset restart' : 'Single app mode cleared', 'success')
+      showToast(enabled ? t('system.toast.kioskSet') : t('system.toast.kioskCleared'), 'success')
     } finally {
       kioskBusy = false
     }
@@ -595,30 +595,30 @@
     const list = next === 'allow' ? whitelist : blacklist
     if (next !== 'off' && list.length === 0) {
       throw new Error(next === 'allow'
-        ? 'Pick the allowed apps first — an empty allow list would disable everything'
-        : 'Pick the blocked apps first — an empty block list would change nothing')
+        ? t('system.toast.emptyAllowList')
+        : t('system.toast.emptyBlockList'))
     }
     // Re-read rather than trust the card: the sweep must act on this headset's list, right now.
     const { installed } = await readPackages()
     installedPkgs = installed
-    if (installed.length === 0) throw new Error('Could not read the installed app list — nothing was changed')
+    if (installed.length === 0) throw new Error(t('system.toast.noAppList'))
     const targets = plannedTargets(next, installed)
     if (next !== 'off' && targets.length === 0) {
       throw new Error(next === 'allow'
-        ? 'Every installed app is on your allow list — nothing would be disabled'
-        : 'None of the apps on your block list are installed — nothing to disable')
+        ? t('system.toast.allowListCoversAll')
+        : t('system.toast.blockListMatchesNone'))
     }
     try {
       // Every transition starts from a clean headset, so switching modes — or turning this off — really restores apps.
       const restoreFailed = await sweepPackages(installed, 'Restoring', adb.enablePackage)
       // A tally with failures in it is a failed sweep: the library is now in a state nobody asked for.
       if (restoreFailed) {
-        throw new Error(`${installed.length - restoreFailed} of ${installed.length} apps re-enabled, ${restoreFailed} refused — the headset is in a mixed state`)
+        throw new Error(t('system.toast.restoreMixed', { ok: installed.length - restoreFailed, total: installed.length, failed: restoreFailed }))
       }
       if (next === 'off') return `${installed.length} apps re-enabled`
       const disableFailed = await sweepPackages(targets, 'Disabling', adb.disablePackage)
       if (disableFailed) {
-        throw new Error(`${targets.length - disableFailed} of ${targets.length} apps disabled, ${disableFailed} refused — the headset is in a mixed state`)
+        throw new Error(t('system.toast.disableMixed', { ok: targets.length - disableFailed, total: targets.length, failed: disableFailed }))
       }
       return `${targets.length} apps disabled`
     } finally {

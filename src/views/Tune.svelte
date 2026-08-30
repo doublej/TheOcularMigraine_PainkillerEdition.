@@ -50,8 +50,12 @@
     ffrDynamic: 'debug.oculus.ffrDynamic',
   } as const
 
-  /** Every rate some Quest runs. Offered when the model is unknown, so no list is stated as fact. */
-  const ALL_RATES = [60, 72, 90, 120]
+  /**
+   * Every rate Meta documents for any Quest, offered when the model is unknown so no list is
+   * stated as fact. 60 Hz is absent on purpose: Meta's table marks it media-apps-only, and this
+   * screen tunes VR.
+   */
+  const ALL_RATES = [72, 80, 90, 96, 100, 120]
 
   const device = $derived(getDevice())
   const display = $derived(getDisplay())
@@ -131,7 +135,7 @@
 
   /** Says where the write actually went — in demo mode nothing reached a headset. */
   function reportApplied(what: string) {
-    if (isDemoMode()) showToast(`${what} — demo mode, nothing was sent`, 'info', 1600)
+    if (isDemoMode()) showToast(t('toast.demoNothingSent', { what }), 'info', 1600)
     else showToast(what, 'success', 1400)
   }
 
@@ -163,7 +167,7 @@
       reportApplied(what)
     } catch (e) {
       syncPending()
-      showToast(`${what} failed: ${describe(e)}`, 'error')
+      showToast(t('toast.actionFailed', { what, error: describe(e) }), 'error')
     }
   }
 
@@ -203,7 +207,7 @@
       updateDisplay({ resolutionWidth: w, resolutionHeight: h })
       reportApplied(`Render resolution ${w} × ${h} per eye`)
     } catch (e) {
-      showToast(`Render resolution failed: ${describe(e)}`, 'error')
+      showToast(t('tune.toast.resFailed', { error: describe(e) }), 'error')
     }
   }
 
@@ -235,7 +239,7 @@
       // "not reading, not read yet" and fires a second time. A fixture read is not a headset read.
       hasReadDevice = !isDeviceInfoFixture()
     } catch (e) {
-      showToast(`Could not read the headset: ${describe(e)}`, 'error')
+      showToast(t('tune.toast.readFailed', { error: describe(e) }), 'error')
     } finally {
       refreshing = false
     }
@@ -251,7 +255,7 @@
       if (launch) await adb.launchApp(profile.packageName)
       reportApplied(launch ? `Launching ${profile.name}` : `Applied “${profile.name}”`)
     } catch (e) {
-      showToast(`${profile.name} failed: ${describe(e)}`, 'error')
+      showToast(t('toast.actionFailed', { what: profile.name, error: describe(e) }), 'error')
     } finally {
       busyProfile = ''
     }
@@ -265,7 +269,7 @@
       syncPending()
       reportApplied(`Applied “${preset.name}”`)
     } catch (e) {
-      showToast(`Preset “${preset.name}” failed: ${describe(e)}`, 'error')
+      showToast(t('tune.toast.presetFailed', { name: preset.name, error: describe(e) }), 'error')
     } finally {
       busyPreset = ''
     }
@@ -280,7 +284,7 @@
       // Through reportApplied like every other write here, so a demo clear cannot toast green.
       reportApplied('Performance props cleared — the headset picks its own again')
     } catch (e) {
-      showToast(`Clear failed: ${describe(e)}`, 'error')
+      showToast(t('tune.toast.clearFailed', { error: describe(e) }), 'error')
     } finally {
       await refresh()
       clearing = false
@@ -293,14 +297,14 @@
       const props = await adb.getCurrentOculusProps()
       // The mock table answers `getprop` with six invented props. Snapshotting those would push the
       // last real backup out of the three-deep ring, so a fixture read is a failure, not a backup.
-      if (adb.isFixtureRead()) throw new Error('no headset attached — nothing was read or cleared')
+      if (adb.isFixtureRead()) throw new Error(t('tune.toast.noHeadsetClear'))
       const backup = persistence.saveSettingsBackup(props)
       await adb.clearAllSettings()
       showToast(backup
-        ? 'Cleared — the old props are in Settings Backup'
-        : 'Cleared — nothing was set, so there was nothing to back up', 'success')
+        ? t('tune.toast.clearedBackedUp')
+        : t('tune.toast.clearedNothing'), 'success')
     } catch (e) {
-      showToast(`Clear failed: ${describe(e)}`, 'error')
+      showToast(t('tune.toast.clearFailed', { error: describe(e) }), 'error')
     } finally {
       await refresh()
       clearing = false
@@ -327,7 +331,7 @@
     } else {
       addProfile({ id: persistence.makeId(), name, packageName: namedPackage, display: { ...display }, isDefault: false })
     }
-    showToast(`Saved “${name}”`, 'success')
+    showToast(t('toast.saved', { name }), 'success')
     cancelNaming()
   }
 
@@ -340,12 +344,12 @@
   function deletePreset(id: string) {
     presets = presets.filter(p => p.id !== id)
     persistence.savePresets(presets)
-    showToast('Preset deleted', 'success', 1400)
+    showToast(t('tune.toast.presetDeleted'), 'success', 1400)
   }
 
   function deleteProfile(id: string) {
     removeProfile(id)
-    showToast('Profile deleted', 'success', 1400)
+    showToast(t('toast.profileDeleted'), 'success', 1400)
   }
 
   onMount(() => {

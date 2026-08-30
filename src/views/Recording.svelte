@@ -277,7 +277,7 @@
     // Read the bridge's live state first: a mid-session drop must not be reported as a success.
     refreshConnectionState()
     if (isDemoMode() || !getServerConnected()) {
-      showToast('Not connected — nothing was sent to the headset', 'error')
+      showToast(t('rec.toast.notConnected'), 'error')
       return
     }
     const starting = !isRecording
@@ -295,15 +295,15 @@
         // The prop only arms the encoder: without a VR app in front there is nothing to time.
         startedAt = starting && appInFront ? Date.now() : null
         elapsed = 0
-        if (!starting) showToast('Recording stopped', 'info')
-        else if (appInFront) showToast('Recording started', 'success')
-        else if (foregroundPkg === null) showToast('Capture enabled — could not check whether a VR app is open', 'info')
-        else showToast('Capture enabled — recording starts when you open a VR app', 'info')
+        if (!starting) showToast(t('rec.toast.stopped'), 'info')
+        else if (appInFront) showToast(t('rec.toast.started'), 'success')
+        else if (foregroundPkg === null) showToast(t('rec.toast.armedUnchecked'), 'info')
+        else showToast(t('rec.toast.armedWaiting'), 'info')
       } else {
-        showToast(`The headset still reports capture ${starting ? 'off' : 'on'} — nothing changed`, 'error')
+        showToast(starting ? t('rec.toast.stillOff') : t('rec.toast.stillOn'), 'error')
       }
     } catch (e) {
-      showToast(`Recording failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+      showToast(t('rec.toast.failed', { error: e instanceof Error ? e.message : t('rec.toast.unknownError') }), 'error')
       await readRecordingState()
     } finally {
       busy = false
@@ -340,31 +340,31 @@
   function saveRecProfile() {
     const name = profileName.trim()
     if (!name) {
-      showToast('Give the profile a name first', 'error')
+      showToast(t('rec.toast.needName'), 'error')
       return
     }
     if (recProfiles.some(p => p.name === name)) {
-      showToast(`A profile called "${name}" already exists`, 'error')
+      showToast(t('rec.toast.nameTaken', { name }), 'error')
       return
     }
     recProfiles = [...recProfiles, { id: String(Date.now()), name, settings: $state.snapshot(rec) }]
     persistence.saveRecordingProfiles(recProfiles)
     naming = false
-    showToast(`Saved "${name}"`, 'success')
+    showToast(t('toast.saved', { name }), 'success')
   }
 
   function loadRecProfile(profile: persistence.RecordingProfile) {
     // Mid-capture the settings panel is inert and applyRecordingSettings is never re-run, so a load
     // would change nothing on the headset while toasting a success and navigating to a dead panel.
     if (isRecording || busy) {
-      showToast('Stop recording first — capture settings cannot change mid-capture', 'error')
+      showToast(t('rec.toast.stopFirst'), 'error')
       return
     }
     // Snapshot first: without it the saved profile and live settings share one fovCrop object.
     updateRecording(mergeRecording($state.snapshot(profile.settings)))
     expandedProfile = ''
     selectSection('settings')
-    showToast(`Loaded "${profile.name}" — ${describeSettings(profile.settings)}`, 'success')
+    showToast(t('rec.toast.loaded', { name: profile.name, summary: describeSettings(profile.settings) }), 'success')
   }
 
   function deleteRecProfile(id: string) {
@@ -372,7 +372,7 @@
     persistence.saveRecordingProfiles(recProfiles)
     confirmDelete = ''
     expandedProfile = ''
-    showToast('Profile deleted', 'info')
+    showToast(t('toast.profileDeleted'), 'info')
   }
 
   function toggleProfile(id: string) {

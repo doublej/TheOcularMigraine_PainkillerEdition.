@@ -279,7 +279,7 @@ export async function setprop(prop: string, value: string | number): Promise<voi
   // dropped bridge already uses.
   if (mode === 'native') setPrivilege('app')
   throw new Error(
-    `${prop} did not take: the headset still reads ${readBack ? `'${readBack}'` : 'no value'}`,
+    t('adb.propRefused', { prop, reads: readBack ? `'${readBack}'` : t('adb.noValue') }),
   )
 }
 
