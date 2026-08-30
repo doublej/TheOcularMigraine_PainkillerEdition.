@@ -43,7 +43,8 @@ export interface GameProfile {
   id: string
   name: string
   packageName: string
-  display: DisplaySettings
+  /** Only what was deliberately set, same rule as a preset — see pickDisplay. */
+  display: Partial<DisplaySettings>
   recording?: RecordingSettings
   isDefault: boolean
 }
@@ -198,6 +199,18 @@ function mergeDisplay(saved: Partial<DisplaySettings> | null | undefined): Displ
   return { ...defaultDisplay, ...saved }
 }
 
+/**
+ * The opposite of mergeDisplay: a profile holds only the keys someone actually chose, so filling
+ * the gaps with defaults would re-invent exactly the guesses a partial exists to keep out. A
+ * profile written by an older version holds all nine, which under this rule reads as "all nine
+ * were set" — which is what it claimed.
+ */
+function pickDisplay(saved: Partial<DisplaySettings> | null | undefined): Partial<DisplaySettings> {
+  return Object.fromEntries(
+    DISPLAY_KEYS.filter(k => saved?.[k] !== undefined).map(k => [k, saved![k]]),
+  ) as Partial<DisplaySettings>
+}
+
 /** Same rule as recording: a profile saved by an older version can be missing whole sections. */
 function mergeProfile(saved: Partial<GameProfile> | null | undefined): GameProfile | null {
   // Without these two there is nothing to apply and nothing to delete by, so the row is unusable.
@@ -206,7 +219,7 @@ function mergeProfile(saved: Partial<GameProfile> | null | undefined): GameProfi
     id: saved.id,
     name: saved.name || saved.packageName,
     packageName: saved.packageName,
-    display: mergeDisplay(saved.display),
+    display: pickDisplay(saved.display),
     recording: saved.recording ? mergeRecording(saved.recording) : undefined,
     isDefault: saved.isDefault === true,
   }

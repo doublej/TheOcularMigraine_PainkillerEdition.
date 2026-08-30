@@ -246,15 +246,6 @@
     }
   }
 
-  /** Writes a whole set sequentially so a failure stops at a known prop. Throws — the caller reports. */
-  async function writeDisplay(s: DisplaySettings) {
-    await adb.setResolution(s.resolutionWidth, s.resolutionHeight)
-    await adb.setRefreshRate(s.refreshRate)
-    await adb.setCpuLevel(s.cpuLevel, s.cpuDynamic)
-    await adb.setGpuLevel(s.gpuLevel, s.gpuDynamic)
-    await adb.setFfrLevel(s.ffrLevel, s.ffrDynamic)
-  }
-
   async function refresh() {
     refreshing = true
     try {
@@ -274,7 +265,7 @@
     busyProfile = profile.id
     try {
       // Resolution binds when the app starts, so the write has to land before the launch.
-      await writeDisplay(profile.display)
+      await adb.writeDisplayPartial(profile.display)
       updateDisplay(profile.display)
       syncPending()
       if (launch) await adb.launchApp(profile.packageName)
@@ -371,7 +362,11 @@
       presets = [...presets, { id: persistence.makeId(), name, settings: chosen }]
       persistence.savePresets(presets)
     } else {
-      addProfile({ id: persistence.makeId(), name, packageName: namedPackage, display: { ...display }, isDefault: false })
+      if (profiles.some(p => p.name === name)) {
+        showToast(t('tune.profiles.nameTaken', { name }), 'error')
+        return
+      }
+      addProfile({ id: persistence.makeId(), name, packageName: namedPackage, display: chosen, isDefault: false })
     }
     showToast(t('toast.saved', { name }), 'success')
     cancelNaming()
@@ -410,6 +405,28 @@
     if (arrived && !hasReadDevice && !refreshing) void refresh()
   })
 </script>
+
+<!-- What "current" is, before you save it — and which values are still the headset's own. -->
+{#snippet savePreview()}
+  <div class="preview">
+    {#if willSave.length === 0}
+      <p class="hint">{t('tune.save.nothingSet')}</p>
+    {:else}
+      <span class="preview-title">{t('tune.save.willSave')}</span>
+      <ul class="preview-list">
+        {#each willSave as field}
+          <li>
+            <span class="preview-label">{t(field.label)}</span>
+            <span class="mono">{field.text(display)}</span>
+          </li>
+        {/each}
+      </ul>
+      {#if notSaved.length > 0}
+        <p class="hint">{t('tune.save.notSaved', { list: notSaved.map(f => t(f.label)).join(', ') })}</p>
+      {/if}
+    {/if}
+  </div>
+{/snippet}
 
 {#snippet nameRow()}
   <div class="name-row">
@@ -452,6 +469,61 @@
   {#if device.model && !fixture && !caps.known}
     <p class="warn">{t('tune.warn.unknownHeadset', { model: device.model })}</p>
   {/if}
+
+  <Card title={t('tune.card.profiles')}>
+    <p class="hint">{t('tune.profiles.hint')}</p>
+    <!-- The original applies a profile when the game itself starts; this one cannot, and says so. -->
+    <p class="hint">{t('tune.profiles.manualHint')}</p>
+    {#if profiles.length === 0}
+      <p class="empty">{t('tune.profiles.empty')}</p>
+    {:else}
+      <div class="row-list">
+        {#each profiles as profile (profile.id)}
+          <div class="profile-item">
+            <div class="profile-head">
+              <span class="profile-name">{profile.name}</span>
+              {#if profile.isDefault}<span class="badge">{t('tune.profiles.default')}</span>{/if}
+            </div>
+            <span class="row-meta mono">{summarize(profile.display)}</span>
+            <div class="row-actions">
+              {#if busyProfile === profile.id}
+                <span class="row-busy">{t('common.applying')}</span>
+              {:else}
+                <Button
+                  disabled={locked}
+                  onclick={() => confirmTap(`apply:${profile.id}`, () => applyProfile(profile, false))}
+                >
+                  {armed === `apply:${profile.id}` ? t('common.tapAgain') : t('tune.profile.apply')}
+                </Button>
+                <Button
+                  disabled={locked}
+                  onclick={() => confirmTap(`launch:${profile.id}`, () => applyProfile(profile, true))}
+                >
+                  {armed === `launch:${profile.id}` ? t('tune.profile.tapLaunch') : t('tune.profile.launch')}
+                </Button>
+                <button
+                  class="row-del"
+                  class:armed={armed === `profile:${profile.id}`}
+                  onclick={() => confirmTap(`profile:${profile.id}`, () => deleteProfile(profile.id))}
+                >
+                  {armed === `profile:${profile.id}` ? t('common.tapAgain') : t('common.delete')}
+                </button>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    {@render savePreview()}
+    {#if naming === 'profile'}
+      {@render nameRow()}
+    {:else}
+      <Button disabled={willSave.length === 0} onclick={() => (appPickerOpen = true)}>
+        {t('tune.profiles.save')}
+      </Button>
+    {/if}
+  </Card>
+  <AppPicker bind:open={appPickerOpen} title={t('tune.appPicker.title')} onselect={pickProfileApp} />
 
   <Card title={t('tune.card.performance')}>
     <fieldset class="group" disabled={locked}>
@@ -587,77 +659,9 @@
     </fieldset>
   </Card>
 
-  <Card title={t('tune.card.profiles')}>
-    <p class="hint">{t('tune.profiles.hint')}</p>
-    {#if profiles.length === 0}
-      <p class="empty">{t('tune.profiles.empty')}</p>
-    {:else}
-      <div class="row-list">
-        {#each profiles as profile (profile.id)}
-          <div class="profile-item">
-            <div class="profile-head">
-              <span class="profile-name">{profile.name}</span>
-              {#if profile.isDefault}<span class="badge">{t('tune.profiles.default')}</span>{/if}
-            </div>
-            <span class="row-meta mono">{summarize(profile.display)}</span>
-            <div class="row-actions">
-              {#if busyProfile === profile.id}
-                <span class="row-busy">{t('common.applying')}</span>
-              {:else}
-                <Button
-                  disabled={locked}
-                  onclick={() => confirmTap(`apply:${profile.id}`, () => applyProfile(profile, false))}
-                >
-                  {armed === `apply:${profile.id}` ? t('common.tapAgain') : t('tune.profile.apply')}
-                </Button>
-                <Button
-                  disabled={locked}
-                  onclick={() => confirmTap(`launch:${profile.id}`, () => applyProfile(profile, true))}
-                >
-                  {armed === `launch:${profile.id}` ? t('tune.profile.tapLaunch') : t('tune.profile.launch')}
-                </Button>
-                <button
-                  class="row-del"
-                  class:armed={armed === `profile:${profile.id}`}
-                  onclick={() => confirmTap(`profile:${profile.id}`, () => deleteProfile(profile.id))}
-                >
-                  {armed === `profile:${profile.id}` ? t('common.tapAgain') : t('common.delete')}
-                </button>
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
-    {#if naming === 'profile'}
-      {@render nameRow()}
-    {:else}
-      <Button onclick={() => (appPickerOpen = true)}>{t('tune.profiles.save')}</Button>
-    {/if}
-  </Card>
-  <AppPicker bind:open={appPickerOpen} title={t('tune.appPicker.title')} onselect={pickProfileApp} />
-
   <Card title={t('tune.card.presets')}>
     <p class="hint">{t('tune.presets.hint')}</p>
-    <!-- What "current" is, before you save it — and which values are still the headset's own. -->
-    <div class="preview">
-      {#if willSave.length === 0}
-        <p class="hint">{t('tune.presets.nothingSet')}</p>
-      {:else}
-        <span class="preview-title">{t('tune.presets.willSave')}</span>
-        <ul class="preview-list">
-          {#each willSave as field}
-            <li>
-              <span class="preview-label">{t(field.label)}</span>
-              <span class="mono">{field.text(display)}</span>
-            </li>
-          {/each}
-        </ul>
-        {#if notSaved.length > 0}
-          <p class="hint">{t('tune.presets.notSaved', { list: notSaved.map(f => t(f.label)).join(', ') })}</p>
-        {/if}
-      {/if}
-    </div>
+    {@render savePreview()}
     <div class="stack">
       {#if naming === 'preset'}
         {@render nameRow()}
