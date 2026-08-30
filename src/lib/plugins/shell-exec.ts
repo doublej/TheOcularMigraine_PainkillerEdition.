@@ -99,3 +99,20 @@ export interface AppsPlugin {
 }
 
 export const Apps = registerPlugin<AppsPlugin>('Apps')
+
+export interface FileServerStatus {
+  running: boolean
+  port: number
+  root: string
+  uploads: boolean
+  /** False when Android has not granted All files access — a shared folder would read empty. */
+  canRead: boolean
+}
+
+export interface FileServerPlugin {
+  start(options: { root?: string; uploads?: boolean }): Promise<FileServerStatus>
+  stop(): Promise<FileServerStatus>
+  status(): Promise<FileServerStatus>
+}
+
+export const FileServer = registerPlugin<FileServerPlugin>('FileServer')

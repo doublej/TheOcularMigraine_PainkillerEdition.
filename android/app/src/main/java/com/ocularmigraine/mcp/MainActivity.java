@@ -5,6 +5,7 @@ import com.getcapacitor.BridgeActivity;
 import com.ocularmigraine.mcp.plugins.AppsPlugin;
 import com.ocularmigraine.mcp.plugins.AutoProfilePlugin;
 import com.ocularmigraine.mcp.plugins.DeviceInfoPlugin;
+import com.ocularmigraine.mcp.plugins.FileServerPlugin;
 import com.ocularmigraine.mcp.plugins.ShellExecPlugin;
 
 public class MainActivity extends BridgeActivity {
@@ -15,6 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DeviceInfoPlugin.class);
         registerPlugin(AppsPlugin.class);
         registerPlugin(AutoProfilePlugin.class);
+        registerPlugin(FileServerPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

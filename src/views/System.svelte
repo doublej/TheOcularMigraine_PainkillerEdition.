@@ -94,6 +94,7 @@
     // The access confirm is a panel, not a button, so it does not disarm itself when its card
     // stops rendering: without this, leaving Apps and coming back re-offers a live Apply.
     requestedMode = null
+    if (next === 'device') void loadFileServer()
     if (next === 'apps' && !accessReadAt) {
       loadPackageState()
       void loadStartupApp()
@@ -398,6 +399,49 @@
         throw e
       }
     })
+  }
+
+  // --- File sharing ---
+
+  let filesRoot = $state('/sdcard')
+  let filesUploads = $state(false)
+  let filesRunning = $state(false)
+  let filesCanRead = $state(true)
+  let filesPort = $state(0)
+
+  /** The address someone else types. Only meaningful once the headset has told us both halves. */
+  const filesUrl = $derived(device.ip && filesPort ? `http://${device.ip}:${filesPort}` : '')
+
+  async function loadFileServer() {
+    if (!nativeMode) return
+    const status = await adb.getFileServer()
+    filesRunning = status.running
+    filesCanRead = status.canRead
+    filesPort = status.port
+    if (status.running) {
+      filesRoot = status.root
+      filesUploads = status.uploads
+    }
+  }
+
+  /**
+   * Throws on refusal so the Toggle puts itself back: a switch that says "sharing" while nothing
+   * is listening is the exact failure this app exists to not have.
+   */
+  async function applyFileServer(on: boolean) {
+    const status = on
+      ? await adb.startFileServer(filesRoot.trim() || '/sdcard', filesUploads)
+      : await adb.stopFileServer()
+    filesRunning = status.running
+    filesCanRead = status.canRead
+    filesPort = status.port
+    filesRoot = status.root || filesRoot
+    showToast(
+      status.running
+        ? t('system.toast.filesOn', { url: device.ip ? `http://${device.ip}:${status.port}` : `port ${status.port}` })
+        : t('system.toast.filesOff'),
+      'success',
+    )
   }
 
   // --- Single app (kiosk) mode ---
@@ -950,12 +994,45 @@
     </Card>
 
     <Card title={t('system.files.title')}>
+      <p class="hint">{t('system.files.hint')}</p>
       <Toggle
-        checked={false}
+        bind:checked={filesRunning}
         label={t('system.files.label')}
-        description={t('system.files.description')}
-        disabled
+        description={nativeMode ? t('system.files.description') : t('system.files.offHeadset')}
+        disabled={!nativeMode || !!pending}
+        onchange={applyFileServer}
       />
+      <div class="install-row">
+        <input
+          type="text"
+          class="text-input"
+          placeholder="/sdcard"
+          autocapitalize="off"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck={false}
+          disabled={filesRunning || !nativeMode}
+          bind:value={filesRoot}
+        />
+      </div>
+      <Toggle
+        bind:checked={filesUploads}
+        label={t('system.files.uploads')}
+        description={t('system.files.uploadsHint')}
+        disabled={filesRunning || !nativeMode || !!pending}
+      />
+      {#if filesRunning}
+        <p class="pkg-line">{filesUrl || t('system.files.noAddress')}</p>
+      {/if}
+      {#if nativeMode && !filesCanRead}
+        <p class="hint">{t('system.files.noAccess')}</p>
+        <div class="btn-row">
+          <Button size="sm" disabled={!!pending} onclick={openAndroidSettings}>
+            {t('system.quick.androidSettings')}
+          </Button>
+        </div>
+      {/if}
+      <p class="hint">{t('system.files.warning')}</p>
     </Card>
 
   {:else if activeSection === 'apps'}

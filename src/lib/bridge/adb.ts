@@ -7,8 +7,8 @@
 
 import { Capacitor } from '@capacitor/core'
 import {
-  Apps, DeviceInfo, ShellExec,
-  type Elevation, type NativeApp, type NativeDisplay,
+  Apps, DeviceInfo, FileServer, ShellExec,
+  type Elevation, type FileServerStatus, type NativeApp, type NativeDisplay,
 } from '../plugins/shell-exec'
 import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
@@ -460,6 +460,35 @@ export async function getInstalledApps(): Promise<NativeApp[]> {
     versionName: '',
     enabled: true,
   }))
+}
+
+// --- File sharing ---
+
+/**
+ * Only the headset build has a folder to share and a socket to share it on, so every other route
+ * reports a server that is not running rather than one that cannot be started.
+ */
+const NO_FILE_SERVER: FileServerStatus = {
+  running: false, port: 0, root: '', uploads: false, canRead: false,
+}
+
+export async function getFileServer(): Promise<FileServerStatus> {
+  await modeReady
+  if (mode !== 'native') return NO_FILE_SERVER
+  return FileServer.status()
+}
+
+/** Throws when the folder cannot be read or the port is taken — the caller reports what it says. */
+export async function startFileServer(root: string, uploads: boolean): Promise<FileServerStatus> {
+  await modeReady
+  if (mode !== 'native') return NO_FILE_SERVER
+  return FileServer.start({ root, uploads })
+}
+
+export async function stopFileServer(): Promise<FileServerStatus> {
+  await modeReady
+  if (mode !== 'native') return NO_FILE_SERVER
+  return FileServer.stop()
 }
 
 export async function startRecording(): Promise<void> {
