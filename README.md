@@ -10,8 +10,6 @@ The Ocular Migraine was created by [petermg](https://github.com/petermg/TheOcula
 
 This fork is a UI rebuild using Svelte 5 + Capacitor. Most of his feature set is here, rebuilt against the same ADB surface; the list below says exactly which parts are and are not.
 
-The mark above is an homage to his banner art, not a replacement for it: his vesica eye and his blazing core, with the sunburst redrawn as a fortification spectrum — the shape an ocular migraine aura actually takes. `tools/gen-icons.py` renders it into every icon and splash screen; `tools/label.html` is the source of the label itself.
-
 ## Features
 
 - Change headset resolution — rungs relative to the panel the headset reports, or custom
