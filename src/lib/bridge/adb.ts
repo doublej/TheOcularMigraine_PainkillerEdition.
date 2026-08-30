@@ -136,8 +136,21 @@ export async function shell(command: string): Promise<string> {
   return getMockResponse(command)
 }
 
+/**
+ * A denied setprop still exits 0 on some builds, so a write is only believed once it reads back.
+ * One guard here covers every prop write in the app — levels, resolution, refresh rate, capture
+ * config and the erase — the same discipline as the kiosk read-back in System.
+ */
 export async function setprop(prop: string, value: string | number): Promise<void> {
-  await shell(`setprop ${prop} ${value}`)
+  const wanted = String(value)
+  await shell(`setprop ${prop} '${wanted}'`)
+  // The mock table has no writes to read back; it already answers every getprop from fixtures.
+  if (mode === 'mock') return
+  const readBack = await getprop(prop)
+  if (readBack === wanted) return
+  throw new Error(
+    `${prop} did not take: the headset still reads ${readBack ? `'${readBack}'` : 'no value'}`,
+  )
 }
 
 export async function getprop(prop: string): Promise<string> {
@@ -171,7 +184,7 @@ export async function setRefreshRate(hz: number): Promise<void> {
 /** Blanks every debug.oculus.* render prop. Nothing outside that namespace is touched, so kiosk props survive. */
 export async function clearAllSettings(): Promise<void> {
   for (const prop of Object.keys(await getCurrentOculusProps())) {
-    await shell(`setprop ${prop} ''`)
+    await setprop(prop, '')
   }
 }
 
