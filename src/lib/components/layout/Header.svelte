@@ -18,19 +18,22 @@
           stroke-width="7.5"
           stroke-linejoin="round"
         />
+        <g class="iris">
         <path
           d="M 120.0 74.0 L 127.0 84.7 L 137.6 77.5 L 140.0 90.1 L 152.5 87.5 L 149.9 100.0 L 162.5 102.4 L 155.3 113.0 L 166.0 120.0 L 155.3 127.0 L 162.5 137.6 L 149.9 140.0 L 152.5 152.5 L 140.0 149.9 L 137.6 162.5 L 127.0 155.3 L 120.0 166.0 L 113.0 155.3 L 102.4 162.5 L 100.0 149.9 L 87.5 152.5 L 90.1 140.0 L 77.5 137.6 L 84.7 127.0 L 74.0 120.0 L 84.7 113.0 L 77.5 102.4 L 90.1 100.0 L 87.5 87.5 L 100.0 90.1 L 102.4 77.5 L 113.0 84.7 Z"
           stroke="var(--primary)"
           stroke-width="18"
           stroke-linejoin="round"
-          opacity="0.16"
+          class="halo"
         />
         <path
           d="M 120.0 74.0 L 127.0 84.7 L 137.6 77.5 L 140.0 90.1 L 152.5 87.5 L 149.9 100.0 L 162.5 102.4 L 155.3 113.0 L 166.0 120.0 L 155.3 127.0 L 162.5 137.6 L 149.9 140.0 L 152.5 152.5 L 140.0 149.9 L 137.6 162.5 L 127.0 155.3 L 120.0 166.0 L 113.0 155.3 L 102.4 162.5 L 100.0 149.9 L 87.5 152.5 L 90.1 140.0 L 77.5 137.6 L 84.7 127.0 L 74.0 120.0 L 84.7 113.0 L 77.5 102.4 L 90.1 100.0 L 87.5 87.5 L 100.0 90.1 L 102.4 77.5 L 113.0 84.7 Z"
           stroke="var(--primary)"
           stroke-width="6"
           stroke-linejoin="round"
+          class="glint"
         />
+        </g>
         <circle cx="120" cy="120" r="14" fill="var(--text)" />
       </svg>
       <div class="names">
@@ -75,6 +78,73 @@
     width: 42px;
     height: auto;
     flex-shrink: 0;
+  }
+
+  /* An aura is not a still thing, so once every 20 seconds the iris scintillates: the halo
+     swells, the ring brightens, and the whole star turns a sixteenth of a turn. It has 16
+     teeth, so 22.5deg lands it exactly back on itself — the loop restart is invisible, and
+     nothing has to schedule it. */
+  .iris {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: aura-turn 20s linear infinite;
+  }
+
+  .halo {
+    opacity: 0.16;
+    animation: aura-swell 20s linear infinite;
+  }
+
+  .glint {
+    animation: aura-glint 20s linear infinite;
+  }
+
+  @keyframes aura-turn {
+    0%,
+    90% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(22.5deg);
+    }
+  }
+
+  @keyframes aura-swell {
+    0%,
+    90% {
+      opacity: 0.16;
+      stroke-width: 18;
+    }
+    95% {
+      opacity: 0.4;
+      stroke-width: 26;
+    }
+    100% {
+      opacity: 0.16;
+      stroke-width: 18;
+    }
+  }
+
+  @keyframes aura-glint {
+    0%,
+    90% {
+      stroke: var(--primary);
+    }
+    95% {
+      stroke: color-mix(in srgb, var(--primary) 45%, #ffffff);
+    }
+    100% {
+      stroke: var(--primary);
+    }
+  }
+
+  /* A pulsing eye is exactly the wrong thing to show someone who asked for less motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .iris,
+    .halo,
+    .glint {
+      animation: none;
+    }
   }
   .names {
     display: flex;

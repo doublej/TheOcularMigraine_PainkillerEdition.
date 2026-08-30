@@ -1,4 +1,6 @@
-# The Ocular Migraine: Revisualized
+![The Ocular Migraine — Painkiller Edition](docs/label.png)
+
+# The Ocular Migraine: Painkiller Edition
 
 A native Android app for managing Meta Quest VR headsets (Quest 1/2/3/Pro). Controls device settings via ADB shell commands — resolution, refresh rate, CPU/GPU levels, recording, app management, and more.
 
@@ -7,6 +9,8 @@ A native Android app for managing Meta Quest VR headsets (Quest 1/2/3/Pro). Cont
 The Ocular Migraine was created by [petermg](https://github.com/petermg/TheOcularMigraineMCP). All credit for the concept, feature design, ADB command research, and the exhaustive work mapping every Quest setting to its `debug.oculus.*` property goes to him. His original Tasker-based app is genuinely one of the most feature-complete Quest management tools out there — it does things no other app bothers to do.
 
 This fork is a UI rebuild using Svelte 5 + Capacitor. The feature set is identical; the only thing that changed is the interface.
+
+The mark above is an homage to his banner art, not a replacement for it: his vesica eye and his blazing core, with the sunburst redrawn as a fortification spectrum — the shape an ocular migraine aura actually takes. `tools/gen-icons.py` renders it into every icon and splash screen; `docs/label.html` is the source of the label itself.
 
 ## Features
 

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>The Ocular Migraine — README label</title>
+<!--
+  The source for docs/label.png. The mark is the same drawing tools/gen-icons.py renders for
+  the launcher and the splash; the type needs a browser, because DM Sans is a webfont and
+  rsvg-convert has no way to reach it. To regenerate: serve this file and screenshot the
+  .label element at 2x, then downscale to 1200x360.
+-->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;700&family=IBM+Plex+Mono:wght@500&family=Manrope:wght@500&display=swap" />
+<style>
+  body { margin: 0; background: #101216; }
+  .label {
+    width: 1200px;
+    height: 360px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: #1C1E22;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% 0%, #282b30 0%, #1C1E22 70%);
+    background-size: 40px 40px, 40px 40px, 100% 100%;
+  }
+  .mark { width: 168px; height: auto; }
+  .name {
+    margin-top: 26px;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 44px;
+    font-weight: 300;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: #ffffff;
+    margin-right: -0.26em;
+  }
+  .edition {
+    margin-top: 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #9DA0A8;
+    margin-right: -0.3em;
+  }
+  .brace { color: #5B9EF4; }
+  .credit {
+    margin-top: 20px;
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: #5A5D66;
+  }
+</style>
+</head>
+<body>
+  <div class="label">
+    <svg class="mark" viewBox="10 54 220 132" fill="none">
+      <path d="M 20 120 A 117.3 117.3 0 0 1 220 120 A 117.3 117.3 0 0 1 20 120" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" />
+      <path d="M 120.0 74.0 L 127.0 84.7 L 137.6 77.5 L 140.0 90.1 L 152.5 87.5 L 149.9 100.0 L 162.5 102.4 L 155.3 113.0 L 166.0 120.0 L 155.3 127.0 L 162.5 137.6 L 149.9 140.0 L 152.5 152.5 L 140.0 149.9 L 137.6 162.5 L 127.0 155.3 L 120.0 166.0 L 113.0 155.3 L 102.4 162.5 L 100.0 149.9 L 87.5 152.5 L 90.1 140.0 L 77.5 137.6 L 84.7 127.0 L 74.0 120.0 L 84.7 113.0 L 77.5 102.4 L 90.1 100.0 L 87.5 87.5 L 100.0 90.1 L 102.4 77.5 L 113.0 84.7 Z" stroke="#5B9EF4" stroke-width="7.5" stroke-linejoin="round" opacity="0.18" />
+      <path d="M 120.0 74.0 L 127.0 84.7 L 137.6 77.5 L 140.0 90.1 L 152.5 87.5 L 149.9 100.0 L 162.5 102.4 L 155.3 113.0 L 166.0 120.0 L 155.3 127.0 L 162.5 137.6 L 149.9 140.0 L 152.5 152.5 L 140.0 149.9 L 137.6 162.5 L 127.0 155.3 L 120.0 166.0 L 113.0 155.3 L 102.4 162.5 L 100.0 149.9 L 87.5 152.5 L 90.1 140.0 L 77.5 137.6 L 84.7 127.0 L 74.0 120.0 L 84.7 113.0 L 77.5 102.4 L 90.1 100.0 L 87.5 87.5 L 100.0 90.1 L 102.4 77.5 L 113.0 84.7 Z" stroke="#5B9EF4" stroke-width="2.5" stroke-linejoin="round" />
+      <circle cx="120" cy="120" r="13" fill="#ffffff" />
+    </svg>
+    <div class="name">The Ocular Migraine</div>
+    <div class="edition"><span class="brace">&#123;</span>Painkiller Edition<span class="brace">&#125;</span></div>
+    <div class="credit">Original app and artwork by petermg &middot; interface rebuilt by doublej</div>
+  </div>
+</body>
+</html>
