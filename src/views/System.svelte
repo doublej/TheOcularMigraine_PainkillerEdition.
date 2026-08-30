@@ -940,12 +940,6 @@
       </div>
     </Card>
 
-    <Card title={t('system.detection.title')}>
-      <p class="hint">
-        {t('system.detection.body')}
-      </p>
-    </Card>
-
     <Card title={t('system.backup.title')}>
       <p class="hint">{t('system.backup.hint')}</p>
       <p class="backup-state">{backupSummary}</p>

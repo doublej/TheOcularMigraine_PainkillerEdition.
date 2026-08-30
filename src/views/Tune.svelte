@@ -509,7 +509,6 @@
 
   <Card title={t('tune.card.profiles')}>
     <p class="hint">{t('tune.profiles.hint')}</p>
-    <!-- The original applies a profile when the game itself starts; this one cannot, and says so. -->
     <p class="hint">{t('tune.profiles.manualHint')}</p>
     <div class="auto-apply">
       {#if !autoProfile.canAutoApply()}
