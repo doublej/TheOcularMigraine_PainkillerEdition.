@@ -8,7 +8,7 @@
 import { Capacitor } from '@capacitor/core'
 import {
   Apps, DeviceInfo, ShellExec,
-  type Elevation, type NativeApp,
+  type Elevation, type NativeApp, type NativeDisplay,
 } from '../plugins/shell-exec'
 import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
@@ -465,6 +465,22 @@ export async function getFirmwareVersion(): Promise<string> {
   await modeReady
   if (mode === 'native') return (await readDeviceInfo()).firmware
   return getprop('ro.build.display.id')
+}
+
+/**
+ * The refresh rates the headset itself reports, or [] when nothing could be asked.
+ *
+ * Only the headset build can answer: getSupportedModes is a framework call, and neither the
+ * desktop bridge nor the mock table has a display to ask. An empty array means "not read", never
+ * "none supported" — the caller has to keep those apart or it will state a capability it never saw.
+ */
+export async function getReportedRefreshRates(): Promise<number[]> {
+  await modeReady
+  if (mode !== 'native') return []
+  const { displays } = await DeviceInfo.displayModes()
+  // The built-in panel, not any virtual display the compositor hands a 2D app.
+  const panel: NativeDisplay | undefined = displays.find(d => d.isDefault) ?? displays[0]
+  return panel?.rates ?? []
 }
 
 export async function getModel(): Promise<string> {

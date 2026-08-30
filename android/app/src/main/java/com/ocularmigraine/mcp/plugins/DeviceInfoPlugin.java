@@ -3,13 +3,16 @@ package com.ocularmigraine.mcp.plugins;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.hardware.display.DisplayManager;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Environment;
 import android.os.StatFs;
+import android.view.Display;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,6 +23,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Collections;
+import java.util.TreeSet;
 
 /**
  * Device facts that a sideloaded app can read for itself.
@@ -88,6 +92,49 @@ public class DeviceInfoPlugin extends Plugin {
         result.put("ssidHidden", hidden);
         result.put("signal", connection.getRssi());
         call.resolve(result);
+    }
+
+    /**
+     * Every display this app can see, with the refresh rates each reports.
+     *
+     * The point is to stop inferring a headset's capabilities from its model name. getSupportedModes
+     * needs no permission, so even an unelevated install can ask instead of guessing — and a guess
+     * from a name is exactly the kind of unverified assertion this app exists to avoid.
+     *
+     * Reported per display rather than flattened: the app runs as a 2D panel inside the compositor,
+     * so the display it is handed is not necessarily the physical one, and that difference matters
+     * too much to paper over here.
+     */
+    @PluginMethod
+    public void displayModes(PluginCall call) {
+        DisplayManager manager = (DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE);
+        JSArray displays = new JSArray();
+        if (manager == null) {
+            call.resolve(new JSObject().put("displays", displays));
+            return;
+        }
+
+        for (Display display : manager.getDisplays()) {
+            JSObject entry = new JSObject();
+            entry.put("displayId", display.getDisplayId());
+            entry.put("name", display.getName());
+            entry.put("isDefault", display.getDisplayId() == Display.DEFAULT_DISPLAY);
+            entry.put("activeRate", display.getRefreshRate());
+
+            // De-duplicated and sorted: the panel reports one mode per resolution per rate, so the
+            // raw list repeats every rate and is not what a caller wants to offer as choices.
+            TreeSet<Integer> rates = new TreeSet<>();
+            for (Display.Mode mode : display.getSupportedModes()) {
+                rates.add(Math.round(mode.getRefreshRate()));
+            }
+            JSArray rateList = new JSArray();
+            for (Integer rate : rates) rateList.put(rate);
+            entry.put("rates", rateList);
+            entry.put("modeCount", display.getSupportedModes().length);
+            displays.put(entry);
+        }
+
+        call.resolve(new JSObject().put("displays", displays));
     }
 
     private void putBattery(JSObject result) {

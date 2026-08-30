@@ -66,6 +66,9 @@ export const en = {
   'setup.done.heading': 'That’s it',
   'setup.done.body': 'Anything the headset will not allow is switched off rather than left to fail on tap, and the bar at the bottom of the screen says which. Open this again any time by tapping that bar.',
 
+  // Shared by every control that can report "the headset has no value for this".
+  'common.headsetDefault': 'headset default',
+
   'caps.can': 'Works',
   'caps.cannot': 'Does not work',
 

@@ -60,9 +60,20 @@ export interface NativeWifiInfo {
   ssidHidden: boolean
 }
 
+export interface NativeDisplay {
+  displayId: number
+  name: string
+  isDefault: boolean
+  activeRate: number
+  /** Distinct refresh rates this display reports, sorted, rounded to whole Hz. */
+  rates: number[]
+  modeCount: number
+}
+
 export interface DeviceInfoPlugin {
   info(): Promise<NativeDeviceInfo>
   wifi(): Promise<NativeWifiInfo>
+  displayModes(): Promise<{ displays: NativeDisplay[] }>
 }
 
 export const DeviceInfo = registerPlugin<DeviceInfoPlugin>('DeviceInfo')

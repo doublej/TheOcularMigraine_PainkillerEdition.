@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Ocular Migraine MCP</string>
-    <string name="title_activity_main">Ocular Migraine MCP</string>
+    <string name="app_name">The Ocular Migraine</string>
+    <string name="title_activity_main">The Ocular Migraine</string>
     <string name="package_name">com.ocularmigraine.mcp</string>
     <string name="custom_url_scheme">com.ocularmigraine.mcp</string>
 </resources>

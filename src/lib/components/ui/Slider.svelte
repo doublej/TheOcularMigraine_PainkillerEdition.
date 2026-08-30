@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../../i18n/index.svelte'
+
   let {
     value = $bindable(0),
     min = 0,
@@ -7,6 +9,7 @@
     label = '',
     unit = '',
     color = 'var(--primary)',
+    unset = false,
   }: {
     value?: number
     min?: number
@@ -15,6 +18,13 @@
     label?: string
     unit?: string
     color?: string
+    /**
+     * The headset has no value for this prop, so the number beside the label is this component's
+     * own default rather than anything that was read back. LevelPicker and FrequencyPicker have
+     * said so since they were written; a slider silently showing 0% was the same lie without the
+     * tell — and 0% is exactly what an unset FOV crop looks like.
+     */
+    unset?: boolean
   } = $props()
 
   // A device readback or a saved preset can hand us a number that is out of range or off the
@@ -49,15 +59,19 @@
 <div class="slider-wrap">
   <div class="slider-header">
     <span class="slider-label">{label}</span>
-    <span class="slider-value" style:color>
-      {safe}{unit}
-    </span>
+    {#if unset}
+      <span class="slider-unset">{t('common.headsetDefault')}</span>
+    {:else}
+      <span class="slider-value" style:color>
+        {safe}{unit}
+      </span>
+    {/if}
   </div>
   <div class="slider-row">
     <button class="stepper" onclick={decrement} disabled={safe <= min} aria-label="Decrease {label}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h8"/></svg>
     </button>
-    <div class="slider-track" style:--pct="{pct}%" style:--color={color}>
+    <div class="slider-track" class:unset style:--pct="{pct}%" style:--color={color}>
       <input
         type="range"
         {min}
@@ -66,7 +80,7 @@
         value={safe}
         oninput={(e) => (value = e.currentTarget.valueAsNumber)}
         aria-label={label}
-        aria-valuetext="{safe}{unit}"
+        aria-valuetext={unset ? t('common.headsetDefault') : `${safe}${unit}`}
       />
     </div>
     <button class="stepper" onclick={increment} disabled={safe >= max} aria-label="Increase {label}">
@@ -76,6 +90,17 @@
 </div>
 
 <style>
+  .slider-unset {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Dimmed rather than disabled: touching it is how you leave the headset default behind. */
+  .slider-track.unset {
+    opacity: 0.45;
+  }
+
   .slider-wrap {
     padding: 10px 0;
   }
