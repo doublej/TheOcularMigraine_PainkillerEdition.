@@ -24,6 +24,7 @@
     getAbilities, getPrivilege,
   } from '../lib/stores/device.svelte'
   import { whyNot } from '../lib/bridge/capabilities'
+  import { t } from '../lib/i18n/index.svelte'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
@@ -129,30 +130,41 @@
   const show = (value: string | number) => (fixtureInfo ? '—' : value || '—')
 
   const batteryLine = $derived(
-    !fixtureInfo && device.battery ? `${device.battery}%${device.charging ? ' charging' : ''}` : '—',
+    !fixtureInfo && device.battery
+      ? device.charging
+        ? t('system.device.batteryCharging', { level: device.battery })
+        : t('system.device.batteryLevel', { level: device.battery })
+      : '—',
   )
   const storageLine = $derived(
     fixtureInfo || !device.freeSpace
       ? '—'
-      : device.totalSpace ? `${device.freeSpace} of ${device.totalSpace}` : device.freeSpace,
+      : device.totalSpace
+        ? t('system.device.storageOf', { free: device.freeSpace, total: device.totalSpace })
+        : device.freeSpace,
   )
   const signalLine = $derived(
     !fixtureInfo && device.signalStrength
-      ? `${describeSignal(device.signalStrength)} (${device.signalStrength} dBm)`
+      ? t('system.device.signal', {
+          quality: describeSignal(device.signalStrength),
+          rssi: device.signalStrength,
+        })
       : '—',
   )
   const readAtLabel = $derived(
     fixtureInfo
-      ? 'No headset attached — nothing was read'
-      : deviceReadAt ? `Read at ${new Date(deviceReadAt).toLocaleTimeString()}` : 'Not read yet',
+      ? t('system.device.noHeadset')
+      : deviceReadAt
+        ? t('system.device.readAt', { time: new Date(deviceReadAt).toLocaleTimeString() })
+        : t('system.device.notRead'),
   )
 
   /** Raw RSSI means nothing to someone deciding whether to walk closer to the router. */
   function describeSignal(rssi: number): string {
-    if (rssi >= -50) return 'Excellent'
-    if (rssi >= -60) return 'Good'
-    if (rssi >= -70) return 'Fair'
-    return 'Weak'
+    if (rssi >= -50) return t('system.signal.excellent')
+    if (rssi >= -60) return t('system.signal.good')
+    if (rssi >= -70) return t('system.signal.fair')
+    return t('system.signal.weak')
   }
 
   /** Never throws: on arrival the failure belongs on the card, not in a sticky toast. */
@@ -253,19 +265,28 @@
 
   const countTweaks = (props: Record<string, string>) => {
     const n = Object.keys(props).length
-    return `${n} tweak${n === 1 ? '' : 's'}`
+    return n === 1 ? t('system.backup.tweakOne', { n }) : t('system.backup.tweakMany', { n })
   }
 
   const backupSummary = $derived(
-    selectedBackup
-      ? `${countTweaks(selectedBackup.props)} from ${formatWhen(selectedBackup.takenAt)}${backups.length > 1 ? ` · ${backups.length} snapshots kept` : ''}`
-      : 'No backup yet.',
+    !selectedBackup
+      ? t('system.backup.none')
+      : backups.length > 1
+        ? t('system.backup.summaryKept', {
+            tweaks: countTweaks(selectedBackup.props),
+            when: formatWhen(selectedBackup.takenAt),
+            kept: backups.length,
+          })
+        : t('system.backup.summary', {
+            tweaks: countTweaks(selectedBackup.props),
+            when: formatWhen(selectedBackup.takenAt),
+          }),
   )
 
   function formatWhen(takenAt: number): string {
     return takenAt
       ? new Date(takenAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : 'an older version'
+      : t('system.backup.older')
   }
 
   function backUpSettings() {
@@ -338,9 +359,7 @@
   const APK_PATH = /^[A-Za-z0-9 _./\\:-]+\.apk$/i
 
   const installHint = $derived(
-    nativeMode
-      ? 'Path to an APK already on the headset. It replaces the app if that package is installed.'
-      : 'Path to an APK on the computer running the bridge. It replaces the app if that package is installed.',
+    nativeMode ? t('system.install.hintHeadset') : t('system.install.hintBridge'),
   )
   const installPlaceholder = $derived(nativeMode ? '/sdcard/Download/app.apk' : 'C:\\Users\\you\\Downloads\\app.apk')
 
@@ -518,14 +537,25 @@
 
   const accessSummary = $derived(
     accessLoading
-      ? 'Reading the headset…'
+      ? t('system.access.reading')
       : !accessReadAt
-        ? 'Not read from the headset yet.'
+        ? t('system.access.notRead')
         : headsetMode === 'off'
-          ? `None of the ${installedPkgs.length} sideloaded apps on this headset are disabled.`
+          ? t('system.access.summaryOff', { total: installedPkgs.length })
           : headsetMode === 'mixed'
-            ? `${disabledPkgs.length} of ${installedPkgs.length} sideloaded apps are disabled, matching neither list.`
-            : `${disabledPkgs.length} of ${installedPkgs.length} sideloaded apps are disabled, matching your ${headsetMode === 'allow' ? 'allow' : 'block'} list.`,
+            ? t('system.access.summaryMixed', {
+                disabled: disabledPkgs.length,
+                total: installedPkgs.length,
+              })
+            : headsetMode === 'allow'
+              ? t('system.access.summaryAllow', {
+                  disabled: disabledPkgs.length,
+                  total: installedPkgs.length,
+                })
+              : t('system.access.summaryBlock', {
+                  disabled: disabledPkgs.length,
+                  total: installedPkgs.length,
+                }),
   )
 
   const plannedCount = $derived(requestedMode ? plannedTargets(requestedMode, installedPkgs).length : 0)
@@ -533,10 +563,15 @@
 
   const accessConfirmText = $derived(
     requestedMode === 'off'
-      ? `Re-enable all ${installedPkgs.length} sideloaded apps on this headset? This includes any you disabled elsewhere.`
+      ? t('system.access.confirmOff', { total: installedPkgs.length })
       : requestedMode === 'allow'
-        ? `Disable ${plannedCount} of the ${installedPkgs.length} sideloaded apps on this headset? Only the ${allowedInstalled} of your ${whitelist.length} allowed apps that are actually installed stay; the rest vanish from the library until you switch back to Off.`
-        : `Disable the ${plannedCount} of your ${blacklist.length} blocked apps that are actually installed? They vanish from the library until you switch back to Off.`,
+        ? t('system.access.confirmAllow', {
+            planned: plannedCount,
+            total: installedPkgs.length,
+            allowed: allowedInstalled,
+            listed: whitelist.length,
+          })
+        : t('system.access.confirmBlock', { planned: plannedCount, listed: blacklist.length }),
   )
 
   /**
@@ -700,7 +735,7 @@
   {#if text}
     <div class="output-wrap">
       <pre class="output" class:failed={failed}>{text}</pre>
-      <button class="output-clear" onclick={clear}>Clear</button>
+      <button class="output-clear" onclick={clear}>{t('system.output.clear')}</button>
     </div>
   {/if}
 {/snippet}
@@ -718,71 +753,69 @@
 <div class="sys">
   <div class="seg" bind:this={sectionTop}>
     <button class="seg-btn" class:active={activeSection === 'device'} onclick={() => selectSection('device')}>
-      Device
+      {t('system.tab.device')}
     </button>
     <button class="seg-btn" class:active={activeSection === 'apps'} onclick={() => selectSection('apps')}>
-      Apps
+      {t('system.tab.apps')}
     </button>
     <button class="seg-btn" class:active={activeSection === 'console'} onclick={() => selectSection('console')}>
-      Console
+      {t('system.tab.console')}
     </button>
   </div>
 
   {#if activeSection === 'device'}
-    <Card title="Device Info">
+    <Card title={t('system.device.title')}>
       <div class="card-head">
         <span class="read-at" class:stale={fixtureInfo || !deviceReadAt}>{readAtLabel}</span>
         <Button size="sm" disabled={!!pending} onclick={handleRefreshDevice}>
-          {pending === 'device' ? 'Reading…' : 'Refresh'}
+          {pending === 'device' ? t('system.busy.reading') : t('system.device.refresh')}
         </Button>
       </div>
       {#if deviceError}
-        <p class="error-line">Could not read the headset — {deviceError}</p>
+        <p class="error-line">{t('system.device.readFailed', { error: deviceError })}</p>
       {/if}
       {#if !can.deviceServices}
         <p class="hint">
-          Battery, Wi‑Fi and storage read blank here. {whyNot('deviceServices', getPrivilege())}
-          Model and OS build come from a different call and still read.
+          {t('system.device.servicesOff', { why: whyNot('deviceServices', getPrivilege()) })}
         </p>
       {/if}
       <div class="stats-grid">
         <div class="stat">
-          <span class="stat-label">Model</span>
+          <span class="stat-label">{t('system.device.model')}</span>
           <span class="stat-value">{show(device.model)}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Battery</span>
+          <span class="stat-label">{t('system.device.battery')}</span>
           <span class="stat-value mono">{batteryLine}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Free storage</span>
+          <span class="stat-label">{t('system.device.freeStorage')}</span>
           <span class="stat-value mono">{storageLine}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">OS build</span>
+          <span class="stat-label">{t('system.device.osBuild')}</span>
           <span class="stat-value mono">{show(device.firmwareVersion)}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Wi-Fi</span>
+          <span class="stat-label">{t('system.device.wifi')}</span>
           <span class="stat-value">{show(device.ssid)}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Wi-Fi signal</span>
+          <span class="stat-label">{t('system.device.wifiSignal')}</span>
           <span class="stat-value mono">{signalLine}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">IP</span>
+          <span class="stat-label">{t('system.device.ip')}</span>
           <span class="stat-value mono">{show(device.ip)}</span>
         </div>
       </div>
     </Card>
 
-    <Card title="Quick Actions">
-      <p class="hint">Common system operations for the headset.</p>
+    <Card title={t('system.quick.title')}>
+      <p class="hint">{t('system.quick.hint')}</p>
       {#if !can.manageApps}
         <p class="hint">
-          Stopping the Quest menu, the screen key and Reboot are switched off.
-          {whyNot('manageApps', getPrivilege())}
+          {t('system.quick.manageOff', { why: whyNot('manageApps', getPrivilege()) })}
         </p>
       {/if}
       <div class="sys-actions">
@@ -791,14 +824,14 @@
             <rect x="2" y="7" width="16" height="10" rx="2" />
             <line x1="21" y1="10" x2="21" y2="14" />
           </svg>
-          <span>{pending === 'battery' ? 'Reading…' : 'Battery detail'}</span>
+          <span>{pending === 'battery' ? t('system.busy.reading') : t('system.quick.batteryDetail')}</span>
         </button>
         <button class="sys-btn" class:armed={armed === 'screen'} disabled={!!pending || !can.manageApps} onclick={() => armAction('screen', toggleHeadsetScreen)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18.36 6.64a9 9 0 11-12.73 0" />
             <line x1="12" y1="2" x2="12" y2="12" />
           </svg>
-          <span>{armed === 'screen' ? 'Tap again' : 'Sleep or wake screen'}</span>
+          <span>{armed === 'screen' ? t('system.tapAgain') : t('system.quick.screen')}</span>
         </button>
         <button class="sys-btn" class:armed={armed === 'home'} disabled={!!pending || !can.manageApps} onclick={() => armAction('home', restartQuestMenu)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -806,7 +839,7 @@
             <path d="M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
             <path d="M3 21v-5h5" />
           </svg>
-          <span>{armed === 'home' ? 'Tap again' : 'Restart Quest menu'}</span>
+          <span>{armed === 'home' ? t('system.tapAgain') : t('system.quick.restartMenu')}</span>
         </button>
         <button class="sys-btn danger" class:armed={armed === 'kill'} disabled={!!pending} onclick={() => armAction('kill', closeBackgroundApps)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -814,89 +847,87 @@
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <span>{armed === 'kill' ? 'Tap again' : 'Close background apps'}</span>
+          <span>{armed === 'kill' ? t('system.tapAgain') : t('system.quick.closeBackground')}</span>
         </button>
         <button class="sys-btn" disabled={!!pending} onclick={openAndroidSettings}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
-          <span>Android settings</span>
+          <span>{t('system.quick.androidSettings')}</span>
         </button>
       </div>
       {@render outputPane(actionOutput, false, () => actionOutput = '')}
       <p class="hint action-note">
-        Sleeping the screen or restarting the menu interrupts whoever is wearing the headset. Closing
-        background apps can drop services the running game depends on.
+        {t('system.quick.note')}
       </p>
       <div class="danger-zone">
         <Button variant="danger" disabled={!!pending || !can.manageApps} onclick={() => armAction('reboot', rebootHeadset)}>
-          {armed === 'reboot' ? 'Tap again to reboot' : 'Reboot headset'}
+          {armed === 'reboot' ? t('system.quick.rebootArmed') : t('system.quick.reboot')}
         </Button>
         <p class="hint">
-          Ends the running session, loses unsaved progress and drops every tweak that is not a persist
-          property. The headset is unusable for about a minute.
+          {t('system.quick.rebootNote')}
         </p>
       </div>
     </Card>
 
-    <Card title="App Detection">
+    <Card title={t('system.detection.title')}>
       <p class="hint">
-        This build never reads which game is running, so game profiles have to be applied by hand
-        from the Tune tab. The switch that used to sit here picked between two ways of detecting it
-        and changed nothing, so it is gone until one of them is wired up.
+        {t('system.detection.body')}
       </p>
     </Card>
 
-    <Card title="Settings Backup">
-      <p class="hint">Keep a copy of every tweak on this headset so you can put it back.</p>
+    <Card title={t('system.backup.title')}>
+      <p class="hint">{t('system.backup.hint')}</p>
       <p class="backup-state">{backupSummary}</p>
       {#if backups.length > 1}
         <div class="snaps">
           {#each backups as snap, i}
             <button class="snap" class:on={snap === selectedBackup} disabled={!!pending} onclick={() => restoreIndex = i}>
-              {countTweaks(snap.props)} · {formatWhen(snap.takenAt)}
+              {t('system.backup.snapshot', {
+                tweaks: countTweaks(snap.props),
+                when: formatWhen(snap.takenAt),
+              })}
             </button>
           {/each}
         </div>
       {/if}
       <div class="settings-actions">
         <Button disabled={!!pending} onclick={backUpSettings}>
-          {pending === 'backup' ? 'Backing up…' : 'Back up now'}
+          {pending === 'backup' ? t('system.busy.backingUp') : t('system.backup.now')}
         </Button>
         <Button disabled={!!pending || !backups.length || !can.writeProps} onclick={() => armAction('restore', restoreSettings)}>
           {#if pending === 'restore'}
-            Restoring…
+            {t('system.busy.restoring')}
           {:else if armed === 'restore'}
-            Tap again to overwrite current tweaks
+            {t('system.backup.restoreArmed')}
           {:else}
-            Restore backup
+            {t('system.backup.restore')}
           {/if}
         </Button>
-        <Button disabled={!!pending} onclick={showCurrentSettings}>Show all tweaks</Button>
+        <Button disabled={!!pending} onclick={showCurrentSettings}>{t('system.backup.showAll')}</Button>
       </div>
       {@render outputPane(propsOutput, false, () => propsOutput = '')}
       <div class="danger-zone">
         <Button variant="danger" disabled={!!pending || !can.writeProps} onclick={() => armAction('erase', eraseAllSettings)}>
           {#if pending === 'erase'}
-            Erasing…
+            {t('system.busy.erasing')}
           {:else if armed === 'erase'}
-            Tap again to erase every tweak
+            {t('system.backup.eraseArmed')}
           {:else}
-            Erase all tweaks on headset
+            {t('system.backup.erase')}
           {/if}
         </Button>
         <p class="hint">
-          Blanks every debug.oculus property, so Tune and Recording go back to headset defaults too.
-          A backup is taken first. Single app mode is a persist property and survives this.
+          {t('system.backup.eraseNote')}
         </p>
       </div>
     </Card>
 
-    <Card title="File Sharing">
+    <Card title={t('system.files.title')}>
       <Toggle
         checked={false}
-        label="Browse headset files from your phone"
-        description="Not built yet — it needs a file server this build does not ship."
+        label={t('system.files.label')}
+        description={t('system.files.description')}
         disabled
       />
     </Card>
@@ -904,12 +935,11 @@
   {:else if activeSection === 'apps'}
     {#if !can.manageApps}
       <p class="section-note">
-        Single App Mode and Access Control are switched off — installing and launching still work.
-        {whyNot('manageApps', getPrivilege())}
+        {t('system.apps.manageOff', { why: whyNot('manageApps', getPrivilege()) })}
       </p>
     {/if}
 
-    <Card title="Install APK">
+    <Card title={t('system.install.title')}>
       <p class="hint">{installHint}</p>
       <div class="install-row">
         <input
@@ -926,63 +956,57 @@
           onkeydown={(e) => { if (e.key === 'Enter') installApk() }}
         />
         <Button size="sm" variant="primary" disabled={!!pending || !apkPath.trim() || !can.installApk} onclick={installApk}>
-          {pending === 'install' ? 'Installing…' : 'Install'}
+          {pending === 'install' ? t('system.busy.installing') : t('system.install.button')}
         </Button>
       </div>
       {@render recents(recentPaths, (value) => apkPath = value)}
       {@render outputPane(installOutput, installFailed, () => installOutput = '')}
     </Card>
 
-    <Card title="Single App Mode">
+    <Card title={t('system.kiosk.title')}>
       <p class="hint">
-        Kiosk mode: the headset boots straight into one app and stays there. It needs a headset
-        provisioned as device owner — on a normal consumer headset the property is written and
-        ignored, and the check below will say so. It applies after a headset restart.
+        {t('system.kiosk.hint')}
       </p>
       <Toggle
         bind:checked={kioskEnabled}
-        label="Lock to a single app"
+        label={t('system.kiosk.label')}
         description={kioskUnknown
-          ? 'Could not read the headset — this switch may not match it'
-          : kioskApp || 'No app chosen yet'}
+          ? t('system.kiosk.unreadable')
+          : kioskApp || t('system.app.noneChosen')}
         disabled={(!kioskApp && !kioskEnabled) || !!pending || !can.manageApps}
-        confirm={kioskEnabled ? 'Unlocks the headset' : 'Locks the headset to one app'}
+        confirm={kioskEnabled ? t('system.kiosk.confirmUnlock') : t('system.kiosk.confirmLock')}
         onchange={applyKiosk}
       />
       <div class="btn-row">
         <Button size="sm" disabled={!!pending || kioskBusy} onclick={() => kioskPickerOpen = true}>
-          {kioskApp ? 'Change app' : 'Choose app'}
+          {kioskApp ? t('system.app.change') : t('system.app.choose')}
         </Button>
       </div>
     </Card>
-    <AppPicker bind:open={kioskPickerOpen} title="Lock headset to" current={kioskApp} onselect={selectKioskApp} />
+    <AppPicker bind:open={kioskPickerOpen} title={t('system.kiosk.pickerTitle')} current={kioskApp} onselect={selectKioskApp} />
 
-    <Card title="Favourite App">
+    <Card title={t('system.favourite.title')}>
       <p class="hint">
-        One tap to open the app you use most. This app has no way to launch anything on headset boot,
-        so nothing happens until you press Launch.
+        {t('system.favourite.hint')}
       </p>
-      <p class="pkg-line">{favouriteApp || 'No app chosen yet'}</p>
+      <p class="pkg-line">{favouriteApp || t('system.app.noneChosen')}</p>
       <div class="btn-row wrap">
         <Button size="sm" onclick={() => favouritePickerOpen = true}>
-          {favouriteApp ? 'Change app' : 'Choose app'}
+          {favouriteApp ? t('system.app.change') : t('system.app.choose')}
         </Button>
         <Button size="sm" variant="primary" disabled={!favouriteApp || !!pending || !can.launchApps} onclick={() => launchPackage(favouriteApp)}>
-          Launch
+          {t('system.favourite.launch')}
         </Button>
         {#if favouriteApp}
-          <Button size="sm" variant="ghost" onclick={clearFavouriteApp}>Clear</Button>
+          <Button size="sm" variant="ghost" onclick={clearFavouriteApp}>{t('system.favourite.clear')}</Button>
         {/if}
       </div>
     </Card>
-    <AppPicker bind:open={favouritePickerOpen} title="Favourite app" current={favouriteApp} onselect={selectFavouriteApp} />
+    <AppPicker bind:open={favouritePickerOpen} title={t('system.favourite.pickerTitle')} current={favouriteApp} onselect={selectFavouriteApp} />
 
-    <Card title="Access Control">
+    <Card title={t('system.access.title')}>
       <p class="hint">
-        Disabled apps disappear from the headset library until you switch this back to Off. Only
-        sideloaded and store apps are touched — Meta's own system apps stay usable. Every change
-        re-enables everything first, so Off really does restore the headset. The mode below is read
-        back from the headset, not remembered from last time, and only apps it actually has are swept.
+        {t('system.access.hint')}
       </p>
       {#if accessError}
         <p class="error-line">{accessError}</p>
@@ -990,16 +1014,16 @@
         <p class="backup-state">{accessSummary}</p>
       {/if}
       <div class="seg">
-        <button class="seg-btn" class:active={headsetMode === 'off'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'off'}>Off</button>
-        <button class="seg-btn" class:active={headsetMode === 'allow'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'allow'}>Allow list</button>
-        <button class="seg-btn" class:active={headsetMode === 'block'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'block'}>Block list</button>
+        <button class="seg-btn" class:active={headsetMode === 'off'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'off'}>{t('system.access.off')}</button>
+        <button class="seg-btn" class:active={headsetMode === 'allow'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'allow'}>{t('system.access.allowList')}</button>
+        <button class="seg-btn" class:active={headsetMode === 'block'} disabled={!accessReadAt || !!pending || !can.manageApps} onclick={() => requestedMode = 'block'}>{t('system.access.blockList')}</button>
       </div>
       {#if requestedMode}
         <div class="confirm-row">
           <p class="confirm-text">{accessConfirmText}</p>
           <div class="btn-row">
-            <Button size="sm" onclick={() => requestedMode = null}>Cancel</Button>
-            <Button size="sm" variant="danger" disabled={!!pending || !can.manageApps} onclick={confirmAccessMode}>Apply</Button>
+            <Button size="sm" onclick={() => requestedMode = null}>{t('system.cancel')}</Button>
+            <Button size="sm" variant="danger" disabled={!!pending || !can.manageApps} onclick={confirmAccessMode}>{t('system.access.apply')}</Button>
           </div>
         </div>
       {/if}
@@ -1008,29 +1032,29 @@
       {/if}
       <div class="btn-row wrap">
         <Button size="sm" disabled={!!pending || accessLoading} onclick={loadPackageState}>
-          {accessLoading ? 'Reading…' : 'Check headset'}
+          {accessLoading ? t('system.busy.reading') : t('system.access.check')}
         </Button>
-        <Button size="sm" disabled={!!pending} onclick={() => whitelistPickerOpen = true}>Allowed apps ({whitelist.length})</Button>
-        <Button size="sm" disabled={!!pending} onclick={() => blacklistPickerOpen = true}>Blocked apps ({blacklist.length})</Button>
+        <Button size="sm" disabled={!!pending} onclick={() => whitelistPickerOpen = true}>{t('system.access.allowedApps', { count: whitelist.length })}</Button>
+        <Button size="sm" disabled={!!pending} onclick={() => blacklistPickerOpen = true}>{t('system.access.blockedApps', { count: blacklist.length })}</Button>
       </div>
     </Card>
     <AppPicker
       bind:open={whitelistPickerOpen}
-      title="Allowed Apps"
+      title={t('system.access.allowedTitle')}
       multiple
       bind:selected={whitelist}
       ondone={persistence.setWhitelist}
     />
     <AppPicker
       bind:open={blacklistPickerOpen}
-      title="Blocked Apps"
+      title={t('system.access.blockedTitle')}
       multiple
       bind:selected={blacklist}
       ondone={persistence.setBlacklist}
     />
 
-    <Card title="Quick Launch">
-      <p class="hint">Open common utility apps on the headset. A tile fails if that app is not installed.</p>
+    <Card title={t('system.launch.title')}>
+      <p class="hint">{t('system.launch.hint')}</p>
       <div class="quick-grid">
         {#each Object.entries(quickApps) as [name, pkg]}
           <button class="quick-btn" disabled={!!pending || !can.launchApps} onclick={() => launchPackage(pkg)}>
@@ -1039,14 +1063,14 @@
         {/each}
       </div>
       <div class="btn-row">
-        <Button size="sm" onclick={() => launchPickerOpen = true}>Launch another app…</Button>
+        <Button size="sm" onclick={() => launchPickerOpen = true}>{t('system.launch.another')}</Button>
       </div>
     </Card>
-    <AppPicker bind:open={launchPickerOpen} title="Launch App" onselect={launchPackage} />
+    <AppPicker bind:open={launchPickerOpen} title={t('system.launch.pickerTitle')} onselect={launchPackage} />
 
   {:else}
-    <Card title="Shell">
-      <p class="hint">Run shell commands directly on the headset.</p>
+    <Card title={t('system.shell.title')}>
+      <p class="hint">{t('system.shell.hint')}</p>
       <div class="input-row">
         <input
           type="text"
@@ -1068,24 +1092,24 @@
           onclick={() => submitCommand('run', shellInput)}
         >
           {#if pending === 'shell'}
-            Running…
+            {t('system.busy.running')}
           {:else if isArmed('run', shellInput)}
-            Tap again
+            {t('system.tapAgain')}
           {:else}
-            Run
+            {t('system.shell.run')}
           {/if}
         </Button>
       </div>
       {#if isArmed('run', shellInput)}
         <p class="confirm-inline">
-          This command takes something away or ends the session. Tap Run again within five seconds to send it.
+          {t('system.shell.armedNote')}
         </p>
       {/if}
       {@render recents(recentCommands, (value) => shellInput = value)}
     </Card>
 
-    <Card title="Saved Scripts">
-      <p class="hint">Tap a saved command to run it. Use the pencil to change or delete one.</p>
+    <Card title={t('system.scripts.title')}>
+      <p class="hint">{t('system.scripts.hint')}</p>
       <div class="script-list">
         {#each scripts as script, i}
           <div class="script-row">
@@ -1098,20 +1122,20 @@
               <span class="script-name">{script.name}</span>
               <span class="script-cmd">{script.command}</span>
               {#if isArmed(`tile${i}`, script.command)}
-                <span class="script-warn">Takes something away — tap again within five seconds to run it</span>
+                <span class="script-warn">{t('system.scripts.armedNote')}</span>
               {/if}
             </button>
-            <button class="script-edit" aria-label="Edit {script.name}" disabled={!!pending} onclick={() => openScriptEditor(i)}>✎</button>
+            <button class="script-edit" aria-label={t('system.scripts.edit', { name: script.name })} disabled={!!pending} onclick={() => openScriptEditor(i)}>✎</button>
           </div>
         {/each}
-        <button class="script-add" onclick={() => openScriptEditor(scripts.length)}>+ Add a command</button>
+        <button class="script-add" onclick={() => openScriptEditor(scripts.length)}>{t('system.scripts.add')}</button>
       </div>
       {#if editingIndex >= 0}
         <div class="script-editor">
           <input
             type="text"
             class="text-input"
-            placeholder="Name"
+            placeholder={t('system.scripts.namePlaceholder')}
             autocapitalize="off"
             autocorrect="off"
             autocomplete="off"
@@ -1121,7 +1145,7 @@
           <input
             type="text"
             class="text-input"
-            placeholder="Shell command"
+            placeholder={t('system.scripts.commandPlaceholder')}
             autocapitalize="off"
             autocorrect="off"
             autocomplete="off"
@@ -1129,11 +1153,11 @@
             bind:value={editCommand}
           />
           <div class="btn-row wrap">
-            <Button size="sm" variant="primary" disabled={!editName.trim() || !editCommand.trim()} onclick={saveScript}>Save</Button>
-            <Button size="sm" variant="ghost" onclick={() => editingIndex = -1}>Cancel</Button>
+            <Button size="sm" variant="primary" disabled={!editName.trim() || !editCommand.trim()} onclick={saveScript}>{t('system.scripts.save')}</Button>
+            <Button size="sm" variant="ghost" onclick={() => editingIndex = -1}>{t('system.cancel')}</Button>
             {#if editingIndex < scripts.length}
               <Button size="sm" variant="danger" onclick={() => armAction('script-delete', deleteScript)}>
-                {armed === 'script-delete' ? 'Tap again to delete' : 'Delete'}
+                {armed === 'script-delete' ? t('system.scripts.deleteArmed') : t('system.scripts.delete')}
               </Button>
             {/if}
           </div>

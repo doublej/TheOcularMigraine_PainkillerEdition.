@@ -21,18 +21,19 @@
     type DisplaySettings, type GameProfile,
   } from '../lib/stores/device.svelte'
   import { whyNot } from '../lib/bridge/capabilities'
+  import { t, type PlainKey } from '../lib/i18n/index.svelte'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
 
   // Rungs are multipliers of the detected panel, never literals: every rung then holds the
   // headset's own aspect and orders correctly, on any model.
-  const SCALES = [
-    { label: 'Smoothest', mul: 0.7 },
-    { label: 'Smoother',  mul: 0.85 },
-    { label: 'Native',    mul: 1 },
-    { label: 'Sharper',   mul: 1.15 },
-    { label: 'Sharpest',  mul: 1.3 },
+  const SCALES: { key: PlainKey; mul: number }[] = [
+    { key: 'tune.res.smoothest', mul: 0.7 },
+    { key: 'tune.res.smoother',  mul: 0.85 },
+    { key: 'tune.res.native',    mul: 1 },
+    { key: 'tune.res.sharper',   mul: 1.15 },
+    { key: 'tune.res.sharpest',  mul: 1.3 },
   ]
 
   /** The props this screen owns — the narrow reset, as opposed to the whole debug.oculus namespace. */
@@ -62,7 +63,7 @@
 
   const steps = $derived(SCALES.map(s => ({
     // caps.known false means the panel is a fallback guess — then no rung may be called "Native".
-    label: caps.known ? s.label : `${Math.round(s.mul * 100)}%`,
+    label: caps.known ? t(s.key) : `${Math.round(s.mul * 100)}%`,
     w: Math.round(caps.nativeWidth * s.mul),
     h: Math.round(caps.nativeHeight * s.mul),
   })))
@@ -175,7 +176,7 @@
   }
 
   function applyFfr(v: number, d: boolean) {
-    return applySetting(() => adb.setFfrLevel(v, d), { ffrLevel: v, ffrDynamic: d }, `Blur level ${v}`)
+    return applySetting(() => adb.setFfrLevel(v, d), { ffrLevel: v, ffrDynamic: d }, `Foveation level ${v}`)
   }
 
   function applyRate(hz: number) {
@@ -200,9 +201,9 @@
     try {
       await adb.setResolution(w, h)
       updateDisplay({ resolutionWidth: w, resolutionHeight: h })
-      reportApplied(`Render size ${w} × ${h}`)
+      reportApplied(`Render resolution ${w} × ${h} per eye`)
     } catch (e) {
-      showToast(`Render size failed: ${describe(e)}`, 'error')
+      showToast(`Render resolution failed: ${describe(e)}`, 'error')
     }
   }
 
@@ -366,9 +367,9 @@
 
 {#snippet nameRow()}
   <div class="name-row">
-    <input class="name-input" bind:value={nameDraft} placeholder="Name" />
-    <Button size="sm" variant="primary" onclick={saveNamed} disabled={!nameDraft.trim()}>Save</Button>
-    <Button size="sm" variant="ghost" onclick={cancelNaming}>Cancel</Button>
+    <input class="name-input" bind:value={nameDraft} placeholder={t('tune.name.placeholder')} />
+    <Button size="sm" variant="primary" onclick={saveNamed} disabled={!nameDraft.trim()}>{t('common.save')}</Button>
+    <Button size="sm" variant="ghost" onclick={cancelNaming}>{t('common.cancel')}</Button>
   </div>
 {/snippet}
 
@@ -376,38 +377,34 @@
   <div class="device-line">
     <span class="device-model" class:unknown={!device.model || fixture}>
       {#if !device.model}
-        No headset read yet &mdash; values below are this app&rsquo;s guess
+        {t('tune.device.noRead')}
       {:else if fixture}
-        Demo data &mdash; &ldquo;{caps.label}&rdquo; came from this app&rsquo;s fixtures, not a headset
+        {t('tune.device.demo', { label: caps.label })}
       {:else}
         {caps.label}
       {/if}
     </span>
     <Button variant="ghost" size="sm" onclick={refresh} disabled={busy}>
-      {refreshing ? 'Reading…' : 'Read headset'}
+      {refreshing ? t('tune.device.reading') : t('tune.device.read')}
     </Button>
   </div>
 
   {#if !can.writeProps}
     <p class="warn">
-      Nothing on this screen can change the headset right now. {whyNot('writeProps', getPrivilege())}
+      {t('tune.warn.cannotWrite')} {whyNot('writeProps', getPrivilege())}
     </p>
   {/if}
 
   {#if device.model && !fixture && !caps.known}
-    <p class="warn">
-      This headset was not recognised ({device.model}) &mdash; the panel size and rate list below are
-      a fallback guess, not its capabilities. setprop takes an unsupported value without complaining,
-      so check the result in the headset.
-    </p>
+    <p class="warn">{t('tune.warn.unknownHeadset', { model: device.model })}</p>
   {/if}
 
-  <Card title="Performance">
+  <Card title={t('tune.card.performance')}>
     <fieldset class="group" disabled={locked}>
     <div class="level-row">
       <div class="level-slot slot-cpu">
         <LevelPicker
-          label="CPU"
+          label={t('tune.cpu.label')}
           bind:value={pending.cpuLevel}
           dynamic={pending.cpuDynamic}
           showDynamic={false}
@@ -418,7 +415,7 @@
       </div>
       <div class="level-slot slot-gpu">
         <LevelPicker
-          label="GPU"
+          label={t('tune.gpu.label')}
           bind:value={pending.gpuLevel}
           dynamic={pending.gpuDynamic}
           showDynamic={false}
@@ -429,7 +426,7 @@
       </div>
       <div class="level-slot slot-blur">
         <LevelPicker
-          label="Blur"
+          label={t('tune.ffr.label')}
           bind:value={pending.ffrLevel}
           dynamic={pending.ffrDynamic}
           showDynamic={false}
@@ -445,42 +442,40 @@
           type="checkbox"
           checked={pending.cpuDynamic}
           indeterminate={unset.includes('cpuDynamic')}
-          onchange={(e) => applyAuto('cpuDynamic', e.currentTarget.checked, 'Auto CPU')}
+          onchange={(e) => applyAuto('cpuDynamic', e.currentTarget.checked, t('tune.auto.cpu'))}
         />
-        Auto CPU
+        {t('tune.auto.cpu')}
       </label>
       <label class="auto-chip" class:unset={unset.includes('gpuDynamic')}>
         <input
           type="checkbox"
           checked={pending.gpuDynamic}
           indeterminate={unset.includes('gpuDynamic')}
-          onchange={(e) => applyAuto('gpuDynamic', e.currentTarget.checked, 'Auto GPU')}
+          onchange={(e) => applyAuto('gpuDynamic', e.currentTarget.checked, t('tune.auto.gpu'))}
         />
-        Auto GPU
+        {t('tune.auto.gpu')}
       </label>
       <label class="auto-chip" class:unset={unset.includes('ffrDynamic')}>
         <input
           type="checkbox"
           checked={pending.ffrDynamic}
           indeterminate={unset.includes('ffrDynamic')}
-          onchange={(e) => applyAuto('ffrDynamic', e.currentTarget.checked, 'Auto blur')}
+          onchange={(e) => applyAuto('ffrDynamic', e.currentTarget.checked, t('tune.auto.ffr'))}
         />
-        Auto blur
+        {t('tune.auto.ffr')}
       </label>
     </div>
     </fieldset>
     <p class="hint">
-      Auto makes the level a ceiling, not a fixed clock. Higher CPU/GPU is smoother in busy scenes,
-      hotter and shorter on battery; blur (FFR) softens the outer picture to free up GPU.
-      {#if autoUnset}A dash instead of a tick means the headset has no value for that one yet; the
-      level above stays on the headset&rsquo;s own default either way.{/if}
+      {t('tune.perf.hint')}
+      {#if autoUnset}{t('tune.perf.autoUnsetHint')}{/if}
     </p>
   </Card>
 
-  <Card title="Display">
+  <Card title={t('tune.card.display')}>
     <fieldset class="group" disabled={locked}>
       <FrequencyPicker
-        label="Screen refresh rate"
+        label={t('tune.refresh.label')}
         bind:value={pending.refreshRate}
         options={caps.known ? caps.refreshRates : ALL_RATES}
         unset={unset.includes('refreshRate')}
@@ -488,27 +483,25 @@
       />
     </fieldset>
     <p class="hint">
-      Higher is smoother and uses more battery.
-      {caps.known
-        ? 'Only the rates this headset runs are listed.'
-        : 'The headset is not recognised, so every rate a Quest can run is listed — an unsupported one is written and silently ignored.'}
+      {t('tune.refresh.hint')}
+      {caps.known ? t('tune.refresh.hintKnown') : t('tune.refresh.hintUnknown')}
     </p>
   </Card>
 
-  <Card title="Resolution">
+  <Card title={t('tune.card.resolution')}>
     <div class="res-display">
       {#if resUnset}
-        <span class="res-unset">headset default</span>
+        <span class="res-unset">{t('common.headsetDefault')}</span>
       {:else}
         <div class="res-value">
           <span class="mono">{display.resolutionWidth}</span>
-          <span class="res-x">&times;</span>
+          <span class="res-x">×</span>
           <span class="mono">{display.resolutionHeight}</span>
         </div>
-        {#if caps.known}<span class="res-ratio">{nativePct}% of native</span>{/if}
+        {#if caps.known}<span class="res-ratio">{t('tune.res.ofNative', { pct: nativePct })}</span>{/if}
       {/if}
     </div>
-    <p class="hint">Per eye. Takes effect the next time a game launches.</p>
+    <p class="hint">{t('tune.res.hint')}</p>
     <fieldset class="group" disabled={locked}>
     <div class="res-grid">
       {#each steps as step}
@@ -518,66 +511,63 @@
           onclick={() => applyResolution(step.w, step.h)}
         >
           <span class="res-cell-label">{step.label}</span>
-          <span class="res-cell-dims mono">{step.w}&times;{step.h}</span>
+          <span class="res-cell-dims mono">{step.w}×{step.h}</span>
         </button>
       {/each}
       <button class="res-cell" class:active={showCustom} onclick={toggleCustom}>
-        <span class="res-cell-label">Custom</span>
+        <span class="res-cell-label">{t('tune.res.custom')}</span>
         <span class="res-cell-dims mono">{showCustom ? '▲' : '▼'}</span>
       </button>
     </div>
     {#if showCustom}
       <div class="res-custom">
-        <Slider bind:value={scale} min={0.5} max={1.4} step={0.05} label="Render scale" unit="x" />
+        <Slider bind:value={scale} min={0.5} max={1.4} step={0.05} label={t('tune.res.scaleLabel')} unit="x" />
         <p class="res-scaled">
-          <span class="mono">{scaledW} &times; {scaledH}</span> per eye &mdash;
-          {caps.known ? `${caps.label} panel is` : 'assumed panel, headset not recognised:'}
-          <span class="mono">{caps.nativeWidth} &times; {caps.nativeHeight}</span>
+          <span class="mono">{scaledW} × {scaledH}</span> {t('tune.res.perEyeDash')}
+          {caps.known ? t('tune.res.panelKnown', { label: caps.label }) : t('tune.res.panelUnknown')}
+          <span class="mono">{caps.nativeWidth} × {caps.nativeHeight}</span>
         </p>
-        <Button variant="primary" onclick={() => applyResolution(scaledW, scaledH)}>Set render size</Button>
+        <Button variant="primary" onclick={() => applyResolution(scaledW, scaledH)}>{t('tune.res.apply')}</Button>
       </div>
     {/if}
     </fieldset>
   </Card>
 
-  <Card title="Game profiles">
-    <p class="hint">A profile is these settings bound to an app &mdash; applying one launches the app too.</p>
+  <Card title={t('tune.card.profiles')}>
+    <p class="hint">{t('tune.profiles.hint')}</p>
     {#if profiles.length === 0}
-      <p class="empty">
-        Nothing saved yet. Set the power levels, refresh rate and resolution above the way you like
-        them, then pick a game to save them for.
-      </p>
+      <p class="empty">{t('tune.profiles.empty')}</p>
     {:else}
       <div class="row-list">
         {#each profiles as profile (profile.id)}
           <div class="profile-item">
             <div class="profile-head">
               <span class="profile-name">{profile.name}</span>
-              {#if profile.isDefault}<span class="badge">Default</span>{/if}
+              {#if profile.isDefault}<span class="badge">{t('tune.profiles.default')}</span>{/if}
             </div>
             <span class="row-meta mono">{summarize(profile.display)}</span>
             <div class="row-actions">
               {#if busyProfile === profile.id}
-                <span class="row-busy">Applying…</span>
+                <span class="row-busy">{t('common.applying')}</span>
               {:else}
                 <Button
                   disabled={locked}
                   onclick={() => confirmTap(`apply:${profile.id}`, () => applyProfile(profile, false))}
                 >
-                  {armed === `apply:${profile.id}` ? 'Tap again' : 'Apply'}
+                  {armed === `apply:${profile.id}` ? t('common.tapAgain') : t('tune.profile.apply')}
                 </Button>
                 <Button
                   disabled={locked}
                   onclick={() => confirmTap(`launch:${profile.id}`, () => applyProfile(profile, true))}
                 >
-                  {armed === `launch:${profile.id}` ? 'Tap again to launch' : 'Apply & launch'}
+                  {armed === `launch:${profile.id}` ? t('tune.profile.tapLaunch') : t('tune.profile.launch')}
                 </Button>
                 <button
                   class="row-del"
                   class:armed={armed === `profile:${profile.id}`}
                   onclick={() => confirmTap(`profile:${profile.id}`, () => deleteProfile(profile.id))}
                 >
-                  {armed === `profile:${profile.id}` ? 'Tap again' : 'Delete'}
+                  {armed === `profile:${profile.id}` ? t('common.tapAgain') : t('common.delete')}
                 </button>
               {/if}
             </div>
@@ -588,23 +578,23 @@
     {#if naming === 'profile'}
       {@render nameRow()}
     {:else}
-      <Button onclick={() => (appPickerOpen = true)}>Save current as profile</Button>
+      <Button onclick={() => (appPickerOpen = true)}>{t('tune.profiles.save')}</Button>
     {/if}
   </Card>
-  <AppPicker bind:open={appPickerOpen} title="Select game" onselect={pickProfileApp} />
+  <AppPicker bind:open={appPickerOpen} title={t('tune.appPicker.title')} onselect={pickProfileApp} />
 
-  <Card title="Presets">
-    <p class="hint">A preset is display settings you can re-apply. It is not tied to an app.</p>
+  <Card title={t('tune.card.presets')}>
+    <p class="hint">{t('tune.presets.hint')}</p>
     <div class="stack">
       {#if naming === 'preset'}
         {@render nameRow()}
       {:else}
-        <Button onclick={() => startNaming('preset', `${display.resolutionWidth}×${display.resolutionHeight} @ ${display.refreshRate}Hz`)}>
-          Save current as preset
+        <Button onclick={() => startNaming('preset', t('tune.presets.suggestedName', { w: display.resolutionWidth, h: display.resolutionHeight, hz: display.refreshRate }))}>
+          {t('tune.presets.save')}
         </Button>
       {/if}
       <Button onclick={() => (showPresetList = !showPresetList)} disabled={presets.length === 0}>
-        {showPresetList ? 'Hide presets' : `Presets (${presets.length})`}
+        {showPresetList ? t('tune.presets.hide') : t('tune.presets.count', { n: presets.length })}
       </Button>
       {#if showPresetList && presets.length > 0}
         <div class="row-list">
@@ -618,9 +608,9 @@
               >
                 <span class="preset-name">
                   {#if busyPreset === preset.id}
-                    Applying…
+                    {t('common.applying')}
                   {:else if armed === `preset-apply:${preset.id}`}
-                    Tap again to overwrite five props
+                    {t('tune.presets.tapOverwrite')}
                   {:else}
                     {preset.name}
                   {/if}
@@ -632,7 +622,7 @@
                 class:armed={armed === `preset:${preset.id}`}
                 onclick={() => confirmTap(`preset:${preset.id}`, () => deletePreset(preset.id))}
               >
-                {armed === `preset:${preset.id}` ? 'Tap again' : 'Delete'}
+                {armed === `preset:${preset.id}` ? t('common.tapAgain') : t('common.delete')}
               </button>
             </div>
           {/each}
@@ -641,19 +631,16 @@
     </div>
   </Card>
 
-  <Card title="Reset">
+  <Card title={t('tune.card.reset')}>
     <div class="stack">
       <Button disabled={locked} onclick={() => confirmTap('perf', clearPerformance)}>
-        {clearing ? 'Clearing…' : armed === 'perf' ? 'Tap again to clear' : 'Reset performance settings'}
+        {clearing ? t('tune.reset.clearing') : armed === 'perf' ? t('tune.reset.tapPerf') : t('tune.reset.perf')}
       </Button>
-      <p class="hint">Blanks this screen&rsquo;s nine props so the headset picks its own again.</p>
+      <p class="hint">{t('tune.reset.perfHint')}</p>
       <Button variant="danger" disabled={locked} onclick={() => confirmTap('all', clearEverything)}>
-        {clearing ? 'Clearing…' : armed === 'all' ? 'Tap again to clear everything' : 'Clear all Oculus debug props'}
+        {clearing ? t('tune.reset.clearing') : armed === 'all' ? t('tune.reset.tapAll') : t('tune.reset.all')}
       </Button>
-      <p class="hint">
-        Blanks every debug.oculus property &mdash; performance, recording and FOV crop, including any
-        set by other tools. The current values are backed up first.
-      </p>
+      <p class="hint">{t('tune.reset.allHint')}</p>
     </div>
   </Card>
 </div>

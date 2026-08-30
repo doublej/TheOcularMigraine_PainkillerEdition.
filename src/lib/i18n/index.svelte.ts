@@ -51,7 +51,10 @@ export function t<K extends Key>(
 ): string {
   const table: Messages = LOCALES[locale]
   // A locale with a key missing falls back to English rather than rendering the key itself.
-  const template: string = table[key] ?? en[key]
+  // The last fallback is the key text: a key that exists in neither table is a bug, but it is a
+  // copy bug, and it must not take the screen down with it. `template.replace` on undefined threw
+  // inside a $derived, which unmounts the whole view — losing every control on it to a typo.
+  const template: string = table[key] ?? en[key] ?? String(key)
   const fill = values[0] as Record<string, string | number> | undefined
   if (!fill) return template
   return template.replace(/\{(\w+)\}/g, (whole, name: string) =>

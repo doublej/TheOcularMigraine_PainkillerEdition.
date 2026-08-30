@@ -118,10 +118,10 @@
         <button
           class="close-btn"
           class:text={multiple}
-          aria-label={multiple ? 'Cancel' : 'Close'}
+          aria-label={multiple ? t('common.cancel') : t('common.close')}
           onclick={close}
         >
-          {#if multiple}Cancel{:else}&times;{/if}
+          {#if multiple}{t('common.cancel')}{:else}×{/if}
         </button>
       </div>
       <input
@@ -134,11 +134,11 @@
         {#if loading}
           <p class="status">{t('apps.finding')}</p>
         {:else if loadError}
-          <p class="status error">Couldn't read the app list — {loadError}</p>
+          <p class="status error">{t('apps.readFailed', { reason: loadError })}</p>
           <button class="retry-btn" onclick={retryLoad}>{t('common.retry')}</button>
         {:else if packages.length === 0}
           {#if adb.getConnectionMode() === 'mock' || !adb.isServerConnected()}
-            <p class="status error">Couldn't read the app list — check the headset connection</p>
+            <p class="status error">{t('apps.readFailedConn')}</p>
             <button class="retry-btn" onclick={retryLoad}>{t('common.retry')}</button>
           {:else}
             <p class="status">{t('apps.none')}</p>
@@ -168,9 +168,11 @@
       </div>
       {#if multiple}
         <div class="modal-footer">
-          <p class="footer-note">Saved to this list only — apply it from Access Control to change the headset.</p>
+          <p class="footer-note">{t('apps.savedLocally')}</p>
           <button class="done-btn" onclick={done}>
-            Save {selected.length} app{selected.length === 1 ? '' : 's'}
+            {selected.length === 1
+              ? t('apps.saveOne')
+              : t('apps.saveMany', { n: selected.length })}
           </button>
         </div>
       {/if}

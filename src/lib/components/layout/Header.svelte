@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '../../i18n/index.svelte'
+
   import type { Snippet } from 'svelte'
 
   let { title = '', status }: { title?: string; status?: Snippet } = $props()
@@ -25,7 +27,7 @@
         <!-- The app's own name, from the original: "The Ocular Migraine: {Dev Mode} Master
              Control Program". A name is not translated, so it never goes through t(). -->
         <span class="kicker">
-          <span class="brace">&#123;</span>Dev Mode<span class="brace">&#125;</span> MCP
+          <span class="brace">&#123;</span>{t('header.devMode')}<span class="brace">&#125;</span>
         </span>
         <h1>{title}</h1>
       </div>

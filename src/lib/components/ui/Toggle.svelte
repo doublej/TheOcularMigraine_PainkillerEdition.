@@ -1,5 +1,6 @@
 <script lang="ts">
   import { showToast } from '../../stores/toast.svelte'
+  import { t } from '../../i18n/index.svelte'
 
   let {
     checked = $bindable(false),
@@ -73,7 +74,7 @@
   <span class="toggle-text">
     {#if label}<span class="toggle-label">{label}</span>{/if}
     {#if armed}
-      <span class="toggle-confirm">{confirm}. Tap again to confirm.</span>
+      <span class="toggle-confirm">{confirm}{t('toggle.confirmSuffix')}</span>
     {:else if description}
       <span class="toggle-desc">{description}</span>
     {/if}

@@ -33,7 +33,7 @@
     {#if unset}
       <span class="freq-unset">{t('common.headsetDefault')}</span>
     {:else}
-      <span class="freq-readout">{value}<span class="hz">Hz</span></span>
+      <span class="freq-readout">{value}<span class="hz">{t('unit.hz')}</span></span>
     {/if}
   </div>
   <div class="freq-options">
@@ -43,7 +43,7 @@
         class:active={!unset && value === hz}
         onclick={() => { value = hz; onchange?.(hz) }}
       >
-        {hz}<span class="hz">Hz</span>
+        {hz}<span class="hz">{t('unit.hz')}</span>
       </button>
     {/each}
   </div>

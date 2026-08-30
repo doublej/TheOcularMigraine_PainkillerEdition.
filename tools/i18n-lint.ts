@@ -42,4 +42,6 @@ for await (const file of glob.scan('.')) {
 }
 
 console.log(`\n${total} bare strings in markup`)
-process.exit(0)
+// A gate now that the count is zero: any new copy in markup fails the build rather than quietly
+// bypassing the i18n table it was all just moved into.
+process.exit(total === 0 ? 0 : 1)

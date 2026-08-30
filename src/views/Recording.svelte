@@ -24,6 +24,7 @@
     type RecordingSettings,
   } from '../lib/stores/device.svelte'
   import { whyNot } from '../lib/bridge/capabilities'
+  import { t, type PlainKey } from '../lib/i18n/index.svelte'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
@@ -67,27 +68,34 @@
     persistence.loadRecordingProfiles().map(p => ({ ...p, settings: mergeRecording(p.settings) })),
   )
 
-  const sizePresets = [
-    { label: '720p', w: 1280, h: 720 },
-    { label: '1080p', w: 1920, h: 1080 },
-    { label: 'Vertical', w: 1080, h: 1920 },
+  const sizePresets: { key: PlainKey; w: number; h: number }[] = [
+    { key: 'rec.size.720p', w: 1280, h: 720 },
+    { key: 'rec.size.1080p', w: 1920, h: 1080 },
+    { key: 'rec.size.vertical', w: 1080, h: 1920 },
   ]
 
   // The capture encoder honours a much smaller set than the display refresh rates.
   const fpsOptions = [30, 60]
 
-  const bitrateOptions = [
-    { label: 'Low', kbps: 10000 },
-    { label: 'Medium', kbps: 20000 },
-    { label: 'High', kbps: 30000 },
-    { label: 'Max', kbps: 40000 },
+  const bitrateOptions: { key: PlainKey; kbps: number }[] = [
+    { key: 'rec.bitrate.low', kbps: 10000 },
+    { key: 'rec.bitrate.medium', kbps: 20000 },
+    { key: 'rec.bitrate.high', kbps: 30000 },
+    { key: 'rec.bitrate.max', kbps: 40000 },
   ]
 
   const eyeOptions = [
-    { value: 'left', label: 'Left eye', hint: 'normal video' },
-    { value: 'both', label: 'Both eyes', hint: 'side-by-side' },
-    { value: 'right', label: 'Right eye', hint: 'normal video' },
-  ] as const
+    { value: 'left', key: 'rec.eye.left', hint: 'rec.eye.hint.mono' },
+    { value: 'both', key: 'rec.eye.both', hint: 'rec.eye.hint.sbs' },
+    { value: 'right', key: 'rec.eye.right', hint: 'rec.eye.hint.mono' },
+  ] as const satisfies readonly { value: RecordingSettings['eye']; key: PlainKey; hint: PlainKey }[]
+
+  // A key picked from a value, never built from one: the table is what keeps `t()` checkable.
+  const EYE_KEY: Record<RecordingSettings['eye'], PlainKey> = {
+    left: 'rec.eye.left',
+    right: 'rec.eye.right',
+    both: 'rec.eye.both',
+  }
 
   // Percent, like every crop value in the UI — the bridge divides by 100 for the prop.
   const EDGE_TRIM = { up: 10, down: 10, inward: 8, outward: 8 }
@@ -108,11 +116,22 @@
   // Everything this line claims has been read back: no elapsed time for a capture we have not seen
   // start, and no '?' from a storage read that failed.
   const runningLine = $derived([
-    capturing ? 'Recording' : 'Capture is on',
+    capturing ? t('rec.line.recording') : t('rec.line.armed'),
     capturing && startedAt !== null ? formatElapsed(elapsed) : '',
-    capturing && startedAt !== null ? `about ${estimatedMb} MB` : '',
-    device.freeSpace && device.freeSpace !== '?' ? `${device.freeSpace} free` : '',
+    capturing && startedAt !== null ? t('rec.line.size', { mb: estimatedMb }) : '',
+    device.freeSpace && device.freeSpace !== '?' ? t('rec.line.free', { space: device.freeSpace }) : '',
   ].filter(Boolean).join(' · '))
+
+  // Interpolated copy lives here rather than in markup: a `{ … }` values object nested inside a
+  // markup expression reads as bare copy to the lint. $derived keeps `t()` following the locale.
+  const noWriteLine = $derived(t('rec.noWrite', { reason: whyNot('writeProps', getPrivilege()) }))
+  const frontPkgLine = $derived(t('rec.front.other', { pkg: foregroundPkg ?? '' }))
+  const willRecordLine = $derived(t('rec.willRecord', { summary: describeSettings(rec) }))
+  const stateUnknownLine = $derived(t('rec.stateUnknown', {
+    reason: isDemoMode() ? t('rec.stateUnknown.demo') : t('rec.stateUnknown.headset'),
+  }))
+  const fpsWarnLine = $derived(t('rec.fps.warn', { fps: rec.framerate }))
+  const bitrateHintLine = $derived(t('rec.bitrateHint', { mbps, mb: Math.round(mbps * 7.5) }))
 
   // Nothing persists the crop sliders: Slider has no change callback, so bind: mutates
   // the store without ever reaching saveRecordingSettings.
@@ -220,9 +239,24 @@
   }
 
   function describeSettings(s: RecordingSettings): string {
-    const eye = { left: 'Left eye', right: 'Right eye', both: 'Both eyes' }[s.eye]
     const crop = s.fovCrop.up || s.fovCrop.down || s.fovCrop.inward || s.fovCrop.outward
-    return `${s.width}x${s.height} · ${s.framerate} fps · ${s.bitrate / 1000} Mbps · ${eye}${crop ? ' · trimmed' : ''}`
+    return t('rec.summary', {
+      w: s.width,
+      h: s.height,
+      fps: s.framerate,
+      mbps: s.bitrate / 1000,
+      eye: t(EYE_KEY[s.eye]),
+      trim: crop ? t('rec.summary.trimmed') : '',
+    })
+  }
+
+  // Called from markup so `t()` keeps tracking the locale, and so the values object stays out of it.
+  function describeFps(fps: number): string {
+    return t('rec.fps.value', { fps })
+  }
+
+  function describeMbps(mbps: number): string {
+    return t('rec.mbps', { mbps })
   }
 
   function formatElapsed(seconds: number): string {
@@ -275,6 +309,23 @@
       busy = false
       refreshConnectionState()
     }
+  }
+
+  // Named rather than inline: an object literal in a markup handler is a brace the copy lint counts.
+  function selectSize(w: number, h: number) {
+    updateRecording({ width: w, height: h })
+  }
+
+  function selectFps(framerate: number) {
+    updateRecording({ framerate })
+  }
+
+  function selectBitrate(bitrate: number) {
+    updateRecording({ bitrate })
+  }
+
+  function selectEye(eye: RecordingSettings['eye']) {
+    updateRecording({ eye })
   }
 
   function applyTrim(on: boolean) {
@@ -333,17 +384,15 @@
 <div class="rec">
   <div class="section-tabs">
     <button class="stab" class:active={activeSection === 'settings'} onclick={() => selectSection('settings')}>
-      Settings
+      {t('rec.tab.settings')}
     </button>
     <button class="stab" class:active={activeSection === 'profiles'} onclick={() => selectSection('profiles')}>
-      Profiles
+      {t('rec.tab.profiles')}
     </button>
   </div>
 
   {#if !can.writeProps}
-    <p class="rec-warn">
-      Nothing on this screen can change the headset right now. {whyNot('writeProps', getPrivilege())}
-    </p>
+    <p class="rec-warn">{noWriteLine}</p>
   {/if}
 
   <!-- Outside the section branches: this is the only stop control in the app. -->
@@ -351,9 +400,9 @@
     <button class="record-btn" class:recording={isRecording} class:capturing disabled={busy || !can.writeProps} onclick={toggleRecording}>
       <span class="rec-dot"></span>
       {#if busy}
-        {isRecording ? 'Stopping…' : 'Starting…'}
+        {isRecording ? t('rec.stopping') : t('rec.starting')}
       {:else}
-        {isRecording ? 'Stop Recording' : 'Start Recording'}
+        {isRecording ? t('rec.stop') : t('rec.start')}
       {/if}
     </button>
     {#if isRecording}
@@ -362,148 +411,144 @@
       {#if !capturing}
         <p class="rec-warn">
           {#if foregroundPkg === null}
-            Could not check what is open in the headset, so this is not a confirmed recording.
+            {t('rec.front.unknown')}
           {:else if foregroundPkg}
-            {foregroundPkg} is in front — recording starts when you open a VR app.
+            {frontPkgLine}
           {:else}
-            No app is in front — recording starts when you open a VR app.
+            {t('rec.front.none')}
           {/if}
         </p>
         <button class="disclosure" disabled={checkingApp} onclick={recheckForeground}>
-          {checkingApp ? 'Checking…' : 'Check again'}
+          {checkingApp ? t('rec.checking') : t('setup.check.again')}
         </button>
       {/if}
     {:else}
-      <p class="rec-status">Will record: {describeSettings(rec)}</p>
-      <p class="rec-note">Capture only runs while a VR app is open in the headset. The settings below are applied when you start.</p>
+      <p class="rec-status">{willRecordLine}</p>
+      <p class="rec-note">{t('rec.note')}</p>
     {/if}
     <!-- Outside both branches: a failed read leaves `isRecording` stale in either direction. -->
     {#if !stateKnown}
-      <p class="rec-warn">
-        Recording state unknown — {isDemoMode() ? 'no headset is attached' : 'the headset did not answer'}.
-        Nothing above is confirmed.
-      </p>
+      <p class="rec-warn">{stateUnknownLine}</p>
     {/if}
   </div>
 
 {#snippet unsetTag(field: CaptureField)}
   {#if captureUnset.includes(field)}
-    <span class="unset-tag">not set on the headset</span>
+    <span class="unset-tag">{t('rec.unset')}</span>
   {/if}
 {/snippet}
 
   {#if activeSection === 'settings'}
     {#if isRecording}
-      <p class="locked-note">Stop recording to change capture settings.</p>
+      <p class="locked-note">{t('rec.lockedSettings')}</p>
     {/if}
 
     <!-- Rule 5: the props a start would overwrite stay locked for as long as that write runs. -->
     <div class="settings" class:locked={isRecording || busy || !can.writeProps} inert={isRecording || busy || !can.writeProps}>
-      <Card title="Video size">
+      <Card title={t('rec.card.size')}>
         {@render unsetTag('size')}
         <div class="presets">
           {#each sizePresets as preset}
             <button
               class="preset-btn"
               class:active={rec.width === preset.w && rec.height === preset.h}
-              onclick={() => updateRecording({ width: preset.w, height: preset.h })}
+              onclick={() => selectSize(preset.w, preset.h)}
             >
-              <span class="preset-label">{preset.label}</span>
+              <span class="preset-label">{t(preset.key)}</span>
               <span class="preset-res">{preset.w}x{preset.h}</span>
             </button>
           {/each}
         </div>
       </Card>
 
-      <Card title="Quality">
+      <Card title={t('rec.card.quality')}>
         <div class="block">
-          <span class="block-label">Capture frame rate</span>
+          <span class="block-label">{t('rec.fpsLabel')}</span>
           {@render unsetTag('fps')}
           <div class="seg">
             {#each fpsOptions as fps}
-              <button class="seg-btn" class:active={rec.framerate === fps} onclick={() => updateRecording({ framerate: fps })}>
-                <span class="seg-name">{fps} fps</span>
+              <button class="seg-btn" class:active={rec.framerate === fps} onclick={() => selectFps(fps)}>
+                <span class="seg-name">{describeFps(fps)}</span>
               </button>
             {/each}
           </div>
           {#if !fpsOptions.includes(rec.framerate)}
-            <p class="warn">{rec.framerate} fps is set, but capture only records at 30 or 60 fps — pick one above.</p>
+            <p class="warn">{fpsWarnLine}</p>
           {/if}
         </div>
 
         <div class="block">
-          <span class="block-label">Bitrate</span>
+          <span class="block-label">{t('rec.bitrateLabel')}</span>
           {@render unsetTag('bitrate')}
           <div class="seg">
             {#each bitrateOptions as option}
-              <button class="seg-btn" class:active={rec.bitrate === option.kbps} onclick={() => updateRecording({ bitrate: option.kbps })}>
-                <span class="seg-name">{option.label}</span>
-                <span class="seg-sub">{option.kbps / 1000} Mbps</span>
+              <button class="seg-btn" class:active={rec.bitrate === option.kbps} onclick={() => selectBitrate(option.kbps)}>
+                <span class="seg-name">{t(option.key)}</span>
+                <span class="seg-sub">{describeMbps(option.kbps / 1000)}</span>
               </button>
             {/each}
           </div>
-          <p class="hint">{mbps} Mbps — about {Math.round(mbps * 7.5)} MB per minute.</p>
+          <p class="hint">{bitrateHintLine}</p>
         </div>
       </Card>
 
-      <Card title="Camera position">
+      <Card title={t('rec.card.camera')}>
         {@render unsetTag('eye')}
         <div class="seg">
           {#each eyeOptions as option}
-            <button class="seg-btn tall" class:active={rec.eye === option.value} onclick={() => updateRecording({ eye: option.value })}>
-              <span class="seg-name">{option.label}</span>
-              <span class="seg-sub">{option.hint}</span>
+            <button class="seg-btn tall" class:active={rec.eye === option.value} onclick={() => selectEye(option.value)}>
+              <span class="seg-name">{t(option.key)}</span>
+              <span class="seg-sub">{t(option.hint)}</span>
             </button>
           {/each}
         </div>
-        <p class="hint">Side-by-side records both eyes into one frame; it needs 3D processing before it plays back as stereo.</p>
+        <p class="hint">{t('rec.eyeHint')}</p>
       </Card>
 
-      <Card title="Trim the recorded picture">
-        <p class="hint lead">Cuts the dark warped border off your video. Does not change what you see in the headset.</p>
+      <Card title={t('rec.card.trim')}>
+        <p class="hint lead">{t('rec.trimLead')}</p>
         {@render unsetTag('crop')}
         <div class="seg">
           <button class="seg-btn" class:active={!trimmed} onclick={() => applyTrim(false)}>
-            <span class="seg-name">No trim</span>
+            <span class="seg-name">{t('rec.trim.none')}</span>
           </button>
+          <!-- No percentage in the label: EDGE_TRIM is 10% top and bottom but 8% inward and outward,
+               so any single number here would be wrong for two of the four edges. -->
           <button class="seg-btn" class:active={isEdgeTrim} onclick={() => applyTrim(true)}>
-            <span class="seg-name">Trim edges (10%)</span>
+            <span class="seg-name">{t('rec.trim.edges')}</span>
           </button>
         </div>
         <button class="disclosure" onclick={() => showCustomTrim = !showCustomTrim}>
-          {showCustomTrim ? 'Hide per-edge trim' : 'Set each edge yourself'}
+          {showCustomTrim ? t('rec.trim.hide') : t('rec.trim.custom')}
         </button>
         {#if showCustomTrim}
-          <Slider bind:value={rec.fovCrop.up} min={0} max={40} label="Trim top" unit="%" color="var(--accent-grape)" />
-          <Slider bind:value={rec.fovCrop.down} min={0} max={40} label="Trim bottom" unit="%" color="var(--accent-grape)" />
-          <Slider bind:value={rec.fovCrop.inward} min={0} max={40} label="Trim nose side" unit="%" color="var(--accent-grape)" />
-          <Slider bind:value={rec.fovCrop.outward} min={0} max={40} label="Trim outer side" unit="%" color="var(--accent-grape)" />
+          <Slider bind:value={rec.fovCrop.up} min={0} max={40} label={t('rec.trim.up')} unit="%" color="var(--accent-grape)" />
+          <Slider bind:value={rec.fovCrop.down} min={0} max={40} label={t('rec.trim.down')} unit="%" color="var(--accent-grape)" />
+          <Slider bind:value={rec.fovCrop.inward} min={0} max={40} label={t('rec.trim.inward')} unit="%" color="var(--accent-grape)" />
+          <Slider bind:value={rec.fovCrop.outward} min={0} max={40} label={t('rec.trim.outward')} unit="%" color="var(--accent-grape)" />
         {/if}
       </Card>
     </div>
 
   {:else}
-    <Card title="Profiles">
-      <p class="hint lead">
-        A profile is a set of capture settings you can load back later. It is not tied to a game —
-        Game Profiles on the Tune tab do that.
-      </p>
+    <Card title={t('rec.tab.profiles')}>
+      <p class="hint lead">{t('rec.profiles.lead')}</p>
       {#if isRecording}
-        <p class="locked-note">Stop recording to load a profile — capture settings are locked mid-capture.</p>
+        <p class="locked-note">{t('rec.profiles.locked')}</p>
       {/if}
       <div class="profile-actions">
         {#if naming}
           <div class="name-row">
-            <input class="name-input" bind:value={profileName} placeholder="Profile name" aria-label="Profile name" />
-            <Button size="sm" variant="primary" onclick={saveRecProfile}>Save</Button>
-            <Button size="sm" onclick={() => naming = false}>Cancel</Button>
+            <input class="name-input" bind:value={profileName} placeholder={t('rec.profiles.name')} aria-label={t('rec.profiles.name')} />
+            <Button size="sm" variant="primary" onclick={saveRecProfile}>{t('rec.profiles.save')}</Button>
+            <Button size="sm" onclick={() => naming = false}>{t('rec.profiles.cancel')}</Button>
           </div>
         {:else}
-          <Button variant="primary" onclick={startNaming}>Save current settings</Button>
+          <Button variant="primary" onclick={startNaming}>{t('rec.profiles.saveCurrent')}</Button>
         {/if}
 
         {#if recProfiles.length === 0}
-          <p class="empty">No profiles saved yet.</p>
+          <p class="empty">{t('rec.profiles.empty')}</p>
         {:else}
           <div class="rec-profile-list">
             {#each recProfiles as profile (profile.id)}
@@ -515,14 +560,14 @@
                 {#if expandedProfile === profile.id}
                   <div class="rp-actions">
                     <Button size="sm" variant="primary" disabled={isRecording || busy || !can.writeProps} onclick={() => loadRecProfile(profile)}>
-                      Load these settings
+                      {t('rec.profiles.load')}
                     </Button>
                     <Button
                       size="sm"
                       variant="danger"
                       onclick={() => confirmDelete === profile.id ? deleteRecProfile(profile.id) : (confirmDelete = profile.id)}
                     >
-                      {confirmDelete === profile.id ? 'Tap again to delete' : 'Delete'}
+                      {confirmDelete === profile.id ? t('rec.profiles.confirmDelete') : t('rec.profiles.delete')}
                     </Button>
                   </div>
                 {/if}

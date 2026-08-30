@@ -1,5 +1,6 @@
 <script lang="ts">
   import Header from './lib/components/layout/Header.svelte'
+  import { t } from './lib/i18n/index.svelte'
   import TabBar from './lib/components/layout/TabBar.svelte'
   import Toast from './lib/components/ui/Toast.svelte'
   import ConnectionIndicator from './lib/components/ui/ConnectionIndicator.svelte'
@@ -63,7 +64,11 @@
         class:charging={device.charging}
         class:unknown={!device.battery}
       >
-        Headset {device.battery ? `${device.battery}%` : '—'}{device.charging ? ' charging' : ''}
+        {device.battery
+          ? device.charging
+            ? t('app.headsetCharging', { level: device.battery })
+            : t('app.headsetBattery', { level: device.battery })
+          : t('app.headsetUnknown')}
       </span>
     {/snippet}
   </Header>
