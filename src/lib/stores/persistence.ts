@@ -3,7 +3,8 @@ import type { DisplaySettings, GameProfile, RecordingSettings } from './device.s
 export interface DisplayPreset {
   id: string
   name: string
-  settings: DisplaySettings
+  /** Only what was deliberately set. A missing key means "left on the headset's own default". */
+  settings: Partial<DisplaySettings>
 }
 
 /** One snapshot of the headset's debug.oculus props, taken by Settings Backup. */
@@ -63,7 +64,13 @@ export function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
-export const loadPresets = () => load<DisplayPreset[]>(KEYS.PRESETS, [])
+/** Same guard as mergeProfile: without these three there is nothing to apply and nothing to delete by. */
+export function loadPresets(): DisplayPreset[] {
+  const raw = load<Partial<DisplayPreset>[]>(KEYS.PRESETS, [])
+  if (!Array.isArray(raw)) return []
+  return raw.filter((p): p is DisplayPreset => Boolean(p?.id && p.name && p.settings))
+}
+
 export const savePresets = (p: DisplayPreset[]) => save(KEYS.PRESETS, p)
 
 export const loadGameProfiles = () => load<GameProfile[]>(KEYS.GAME_PROFILES, [])

@@ -311,6 +311,33 @@ export async function setRefreshRate(hz: number): Promise<void> {
   await setprop('debug.oculus.refreshRate', hz)
 }
 
+/** The one map from a display setting to the prop that holds it. Every caller that names props reads it. */
+export const DISPLAY_PROPS: Record<keyof DisplaySettings, string> = {
+  resolutionWidth: 'debug.oculus.textureWidth',
+  resolutionHeight: 'debug.oculus.textureHeight',
+  refreshRate: 'debug.oculus.refreshRate',
+  cpuLevel: 'debug.oculus.cpuLevel',
+  gpuLevel: 'debug.oculus.gpuLevel',
+  ffrLevel: 'debug.oculus.ffrLevel',
+  cpuDynamic: 'debug.oculus.adaclocks.cpuDynamic',
+  gpuDynamic: 'debug.oculus.adaclocks.gpuDynamic',
+  ffrDynamic: 'debug.oculus.ffrDynamic',
+}
+
+/**
+ * Writes exactly the keys present, one prop each — booleans as 1/0, like every other flag here.
+ * Per-key rather than through the grouped setters above, because a grouped call cannot express
+ * "the level was set, the Auto flag never was" without inventing the flag. Sequential, so a
+ * failure stops at a known prop. Throws — the caller reports.
+ */
+export async function writeDisplayPartial(s: Partial<DisplaySettings>): Promise<void> {
+  for (const key of Object.keys(DISPLAY_PROPS) as (keyof DisplaySettings)[]) {
+    const value = s[key]
+    if (value === undefined) continue
+    await setprop(DISPLAY_PROPS[key], typeof value === 'boolean' ? (value ? 1 : 0) : value)
+  }
+}
+
 /** Blanks every debug.oculus.* render prop. Nothing outside that namespace is touched, so kiosk props survive. */
 export async function clearAllSettings(): Promise<void> {
   for (const prop of Object.keys(await getCurrentOculusProps())) {

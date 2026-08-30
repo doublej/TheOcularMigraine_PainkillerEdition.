@@ -36,19 +36,33 @@
     { key: 'tune.res.sharpest',  mul: 1.3 },
   ]
 
-  /** The props this screen owns — the narrow reset, as opposed to the whole debug.oculus namespace. */
-  const PERF_PROPS = [
-    'debug.oculus.textureWidth', 'debug.oculus.textureHeight', 'debug.oculus.refreshRate',
-    'debug.oculus.cpuLevel', 'debug.oculus.gpuLevel', 'debug.oculus.ffrLevel',
-    'debug.oculus.adaclocks.cpuDynamic', 'debug.oculus.adaclocks.gpuDynamic', 'debug.oculus.ffrDynamic',
-  ]
+  /** Everything this screen owns — the narrow reset, as opposed to the whole debug.oculus namespace. */
+  const DISPLAY_KEYS = Object.keys(adb.DISPLAY_PROPS) as (keyof DisplaySettings)[]
 
-  /** Auto is one prop per level, written on its own so flipping it never invents a level. */
-  const AUTO_PROPS = {
-    cpuDynamic: 'debug.oculus.adaclocks.cpuDynamic',
-    gpuDynamic: 'debug.oculus.adaclocks.gpuDynamic',
-    ffrDynamic: 'debug.oculus.ffrDynamic',
-  } as const
+  /** Auto is a prop of its own, written alone so flipping it never invents a level. */
+  type AutoKey = 'cpuDynamic' | 'gpuDynamic' | 'ffrDynamic'
+
+  const onOff = (v: boolean | undefined) => t(v ? 'common.on' : 'common.off')
+
+  /**
+   * One entry per thing this screen can set: what to call it, which keys carry it, how to say its
+   * value. The save preview, the "not saved" line and every saved row's summary all read this, so
+   * the three can never disagree about what a preset holds.
+   */
+  const FIELDS: {
+    label: PlainKey
+    keys: (keyof DisplaySettings)[]
+    text: (s: Partial<DisplaySettings>) => string
+  }[] = [
+    { label: 'tune.card.resolution', keys: ['resolutionWidth', 'resolutionHeight'], text: s => `${s.resolutionWidth}×${s.resolutionHeight}` },
+    { label: 'tune.refresh.label', keys: ['refreshRate'], text: s => `${s.refreshRate} Hz` },
+    { label: 'tune.cpu.label', keys: ['cpuLevel'], text: s => `${s.cpuLevel}` },
+    { label: 'tune.gpu.label', keys: ['gpuLevel'], text: s => `${s.gpuLevel}` },
+    { label: 'tune.ffr.label', keys: ['ffrLevel'], text: s => `${s.ffrLevel}` },
+    { label: 'tune.auto.cpu', keys: ['cpuDynamic'], text: s => onOff(s.cpuDynamic) },
+    { label: 'tune.auto.gpu', keys: ['gpuDynamic'], text: s => onOff(s.gpuDynamic) },
+    { label: 'tune.auto.ffr', keys: ['ffrDynamic'], text: s => onOff(s.ffrDynamic) },
+  ]
 
   /**
    * Every rate Meta documents for any Quest, offered when the model is unknown so no list is
@@ -77,6 +91,14 @@
     : steps.find(s => s.w === display.resolutionWidth && s.h === display.resolutionHeight)?.label ?? '')
   const nativePct = $derived(Math.round((display.resolutionWidth / caps.nativeWidth) * 100))
 
+  // A preset is what you deliberately chose. A key the headset has no value for is left out, so
+  // applying one never writes back a number this app guessed on a fresh headset.
+  const chosen = $derived(Object.fromEntries(
+    DISPLAY_KEYS.filter(k => !unset.includes(k)).map(k => [k, display[k]]),
+  ) as Partial<DisplaySettings>)
+  const willSave = $derived(FIELDS.filter(f => f.keys.every(k => !unset.includes(k))))
+  const notSaved = $derived(FIELDS.filter(f => f.keys.some(k => unset.includes(k))))
+
   // The pickers bind here, never straight into the store: a value is committed only once the
   // headset accepted the write, and a failure snaps these back to what the store still holds.
   let pending = $state(levelsOf(getDisplay()))
@@ -90,7 +112,6 @@
   let busyPreset = $state('')
   let busyProfile = $state('')
   let showCustom = $state(false)
-  let showPresetList = $state(false)
   let presets = $state(persistence.loadPresets())
   let appPickerOpen = $state(false)
   let naming = $state<'preset' | 'profile' | ''>('')
@@ -102,8 +123,9 @@
 
   /**
    * Any action in flight that would overwrite the controls below — a clear sweeps all nine props,
-   * a preset or profile writes five, a read replaces the lot. Every one of them goes dead while
-   * it runs, so a tap cannot toast a value the running action is about to blank.
+   * a profile writes nine, a preset writes whatever it holds, a read replaces the lot. Every one
+   * of them goes dead while it runs, so a tap cannot toast a value the running action is about to
+   * blank.
    */
   const busy = $derived(refreshing || clearing || busyPreset !== '' || busyProfile !== '')
 
@@ -129,8 +151,11 @@
     return e instanceof Error ? e.message : String(e)
   }
 
-  function summarize(s: DisplaySettings): string {
-    return `${s.refreshRate} Hz · ${s.resolutionWidth}×${s.resolutionHeight} · CPU ${s.cpuLevel} · GPU ${s.gpuLevel} · FFR ${s.ffrLevel}`
+  /** Only what the settings actually hold, so a partial preset never describes a value it lacks. */
+  function summarize(s: Partial<DisplaySettings>): string {
+    return FIELDS.filter(f => f.keys.every(k => s[k] !== undefined))
+      .map(f => `${t(f.label)} ${f.text(s)}`)
+      .join(' · ')
   }
 
   /** Says where the write actually went — in demo mode nothing reached a headset. */
@@ -194,11 +219,11 @@
    *
    * The checkbox flips itself, so pending moves first or a failed write has nothing to snap back from.
    */
-  async function applyAuto(key: keyof typeof AUTO_PROPS, on: boolean, what: string) {
+  async function applyAuto(key: AutoKey, on: boolean, what: string) {
     pending[key] = on
     const patch: Partial<DisplaySettings> = {}
     patch[key] = on
-    await applySetting(() => adb.setprop(AUTO_PROPS[key], on ? 1 : 0), patch, `${what} ${on ? 'on' : 'off'}`)
+    await applySetting(() => adb.setprop(adb.DISPLAY_PROPS[key], on ? 1 : 0), patch, `${what} ${on ? 'on' : 'off'}`)
   }
 
   async function applyResolution(w: number, h: number) {
@@ -264,7 +289,7 @@
   async function loadPreset(preset: persistence.DisplayPreset) {
     busyPreset = preset.id
     try {
-      await writeDisplay(preset.settings)
+      await adb.writeDisplayPartial(preset.settings)
       updateDisplay(preset.settings)
       syncPending()
       reportApplied(`Applied “${preset.name}”`)
@@ -280,7 +305,7 @@
     try {
       // Empty string, not the two characters `''`: setprop() quotes the value itself and then
       // proves the write by reading it back, so a literal quote pair would never match.
-      for (const prop of PERF_PROPS) await adb.setprop(prop, '')
+      for (const prop of Object.values(adb.DISPLAY_PROPS)) await adb.setprop(prop, '')
       // Through reportApplied like every other write here, so a demo clear cannot toast green.
       reportApplied('Performance props cleared — the headset picks its own again')
     } catch (e) {
@@ -311,6 +336,19 @@
     }
   }
 
+  /** The lowest "Preset N" not already taken, so the offered default never collides. */
+  function nextPresetName(): string {
+    let n = 1
+    while (presets.some(p => p.name === t('tune.presets.defaultName', { n }))) n++
+    return t('tune.presets.defaultName', { n })
+  }
+
+  /** The suggestion is a real one: selected on open, so typing replaces it and Enter accepts it. */
+  function selectAll(node: HTMLInputElement) {
+    node.focus()
+    node.select()
+  }
+
   function startNaming(kind: 'preset' | 'profile', suggested: string) {
     naming = kind
     nameDraft = suggested
@@ -324,10 +362,14 @@
 
   function saveNamed() {
     const name = nameDraft.trim()
+    if (!name) return
     if (naming === 'preset') {
-      presets = [...presets, { id: persistence.makeId(), name, settings: { ...display } }]
+      if (presets.some(p => p.name === name)) {
+        showToast(t('tune.presets.nameTaken', { name }), 'error')
+        return
+      }
+      presets = [...presets, { id: persistence.makeId(), name, settings: chosen }]
       persistence.savePresets(presets)
-      showPresetList = true
     } else {
       addProfile({ id: persistence.makeId(), name, packageName: namedPackage, display: { ...display }, isDefault: false })
     }
@@ -371,7 +413,13 @@
 
 {#snippet nameRow()}
   <div class="name-row">
-    <input class="name-input" bind:value={nameDraft} placeholder={t('tune.name.placeholder')} />
+    <input
+      class="name-input"
+      bind:value={nameDraft}
+      placeholder={t('tune.name.placeholder')}
+      use:selectAll
+      onkeydown={(e) => { if (e.key === 'Enter') saveNamed() }}
+    />
     <Button size="sm" variant="primary" onclick={saveNamed} disabled={!nameDraft.trim()}>{t('common.save')}</Button>
     <Button size="sm" variant="ghost" onclick={cancelNaming}>{t('common.cancel')}</Button>
   </div>
@@ -591,18 +639,34 @@
 
   <Card title={t('tune.card.presets')}>
     <p class="hint">{t('tune.presets.hint')}</p>
+    <!-- What "current" is, before you save it — and which values are still the headset's own. -->
+    <div class="preview">
+      {#if willSave.length === 0}
+        <p class="hint">{t('tune.presets.nothingSet')}</p>
+      {:else}
+        <span class="preview-title">{t('tune.presets.willSave')}</span>
+        <ul class="preview-list">
+          {#each willSave as field}
+            <li>
+              <span class="preview-label">{t(field.label)}</span>
+              <span class="mono">{field.text(display)}</span>
+            </li>
+          {/each}
+        </ul>
+        {#if notSaved.length > 0}
+          <p class="hint">{t('tune.presets.notSaved', { list: notSaved.map(f => t(f.label)).join(', ') })}</p>
+        {/if}
+      {/if}
+    </div>
     <div class="stack">
       {#if naming === 'preset'}
         {@render nameRow()}
       {:else}
-        <Button onclick={() => startNaming('preset', t('tune.presets.suggestedName', { w: display.resolutionWidth, h: display.resolutionHeight, hz: display.refreshRate }))}>
+        <Button disabled={willSave.length === 0} onclick={() => startNaming('preset', nextPresetName())}>
           {t('tune.presets.save')}
         </Button>
       {/if}
-      <Button onclick={() => (showPresetList = !showPresetList)} disabled={presets.length === 0}>
-        {showPresetList ? t('tune.presets.hide') : t('tune.presets.count', { n: presets.length })}
-      </Button>
-      {#if showPresetList && presets.length > 0}
+      {#if presets.length > 0}
         <div class="row-list">
           {#each presets as preset (preset.id)}
             <div class="preset-item">
@@ -616,7 +680,9 @@
                   {#if busyPreset === preset.id}
                     {t('common.applying')}
                   {:else if armed === `preset-apply:${preset.id}`}
-                    {t('tune.presets.tapOverwrite')}
+                    {Object.keys(preset.settings).length === 1
+                      ? t('tune.presets.tapOverwriteOne')
+                      : t('tune.presets.tapOverwrite', { n: Object.keys(preset.settings).length })}
                   {:else}
                     {preset.name}
                   {/if}
@@ -1018,6 +1084,49 @@
     font-size: 14px;
     font-weight: 500;
     color: var(--text);
+  }
+
+  .preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0 12px;
+    padding: 10px 12px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .preview-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .preview-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .preview-list li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .preview-label {
+    color: var(--text-secondary);
+  }
+
+  .preview-list .mono {
+    color: var(--primary);
   }
 
   .name-row {
