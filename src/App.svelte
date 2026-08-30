@@ -54,7 +54,7 @@
 <SetupWizard />
 
 <div class="app">
-  <Header title="Ocular Migraine">
+  <Header title="The Ocular Migraine">
     {#snippet status()}
       <!-- Labelled: an unlabelled percentage next to the phone's own status bar reads as the phone's. -->
       <span
