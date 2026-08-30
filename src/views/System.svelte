@@ -1,42 +1,586 @@
+<script module lang="ts">
+  // Module scope on purpose: App.svelte unmounts this view on every tab switch, and the
+  // console round trip (run a command, go tune something, come back) is the one that lost data.
+  let activeSection = $state<'device' | 'apps' | 'console'>('device')
+  let consoleOutput = $state('')
+  let consoleFailed = $state(false)
+  let recentPaths = $state<string[]>([])
+  let recentCommands = $state<string[]>([])
+
+  /** Newest first, no duplicates, capped — retyping a path on a phone keyboard is the expensive part. */
+  function rememberValue(list: string[], value: string): string[] {
+    return [value, ...list.filter(v => v !== value)].slice(0, 5)
+  }
+</script>
+
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte'
   import Card from '../lib/components/ui/Card.svelte'
   import Button from '../lib/components/ui/Button.svelte'
   import Toggle from '../lib/components/ui/Toggle.svelte'
   import AppPicker from '../lib/components/ui/AppPicker.svelte'
-  import { getDevice } from '../lib/stores/device.svelte'
+  import { getDevice, getConnectionMode, isDemoMode, isDeviceInfoFixture, refreshDevice } from '../lib/stores/device.svelte'
+  import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
+  import type { AccessMode, UserScript } from '../lib/stores/persistence'
+
+  /** On native this app is in `pm list packages -3` itself, so a sweep must never disable it. */
+  const SELF_PACKAGE = 'com.ocularmigraine.mcp'
 
   const device = $derived(getDevice())
+  const nativeMode = $derived(getConnectionMode() === 'native')
 
-  let activeSection: 'apps' | 'device' | 'console' | 'actions' = $state('apps')
+  let sectionTop: HTMLElement | undefined = $state()
 
+  /** Key of the action currently talking to the headset — one at a time, so a double tap cannot fire twice. */
+  let pending = $state('')
+  /**
+   * Key of the destructive action waiting for its second tap: the control's own identity plus, for
+   * a command, the exact text it will send. Nothing else can satisfy another control's confirm, and
+   * editing the command disarms it. window.confirm blocks the Capacitor WebView.
+   */
+  let armed = $state('')
+  let armTimer: ReturnType<typeof setTimeout> | undefined
 
-  let kioskEnabled = $state(false)
+  function describeError(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  /**
+   * A fixture answer is not this headset's. Anything that would print a read as device truth, or
+   * store it, or sweep against it, calls this first — throwing is the only honest outcome, because
+   * the alternative is a backup full of invented props and a library swept against six mock names.
+   */
+  function assertRealRead() {
+    if (adb.isFixtureRead()) throw new Error('No headset attached — nothing was read from one')
+  }
+
+  /** Arming outlives neither the moment, the section nor the view: a stray second tap must not walk through. */
+  function disarm() {
+    clearTimeout(armTimer)
+    armed = ''
+  }
+
+  onDestroy(disarm)
+
+  /** Two taps for anything that cannot be undone: the first arms, the second fires. */
+  function armAction(key: string, run: () => void) {
+    if (armed === key) {
+      disarm()
+      run()
+      return
+    }
+    clearTimeout(armTimer)
+    armed = key
+    armTimer = setTimeout(() => (armed = ''), 5000)
+  }
+
+  function selectSection(next: 'device' | 'apps' | 'console') {
+    activeSection = next
+    disarm()
+    // The access confirm is a panel, not a button, so it does not disarm itself when its card
+    // stops rendering: without this, leaving Apps and coming back re-offers a live Apply.
+    requestedMode = null
+    if (next === 'apps' && !accessReadAt) loadPackageState()
+  }
+
+  /** Every headset write reports both ways: an invisible failure looks exactly like a success. */
+  async function runAction(key: string, action: () => Promise<string>) {
+    if (pending) return
+    pending = key
+    try {
+      const message = await action()
+      if (isDemoMode()) showToast(`${message} (demo — no headset attached)`, 'info')
+      else showToast(message, 'success')
+    } catch (e) {
+      showToast(describeError(e), 'error')
+    } finally {
+      pending = ''
+    }
+  }
+
+  // Section tabs swap content inside a scroll container that keeps its offset, so a tap can land mid-page.
+  $effect(() => {
+    activeSection
+    sectionTop?.scrollIntoView({ block: 'start' })
+  })
+
+  // --- Device info ---
+
+  let deviceReadAt = $state(0)
+  let deviceError = $state('')
+  let actionOutput = $state('')
+
+  /** Fixtures are not this headset: an invented model and battery level must never render as a reading. */
+  const fixtureInfo = $derived(isDeviceInfoFixture())
+
+  const show = (value: string | number) => (fixtureInfo ? '—' : value || '—')
+
+  const batteryLine = $derived(
+    !fixtureInfo && device.battery ? `${device.battery}%${device.charging ? ' charging' : ''}` : '—',
+  )
+  const storageLine = $derived(
+    fixtureInfo || !device.freeSpace
+      ? '—'
+      : device.totalSpace ? `${device.freeSpace} of ${device.totalSpace}` : device.freeSpace,
+  )
+  const signalLine = $derived(
+    !fixtureInfo && device.signalStrength
+      ? `${describeSignal(device.signalStrength)} (${device.signalStrength} dBm)`
+      : '—',
+  )
+  const readAtLabel = $derived(
+    fixtureInfo
+      ? 'No headset attached — nothing was read'
+      : deviceReadAt ? `Read at ${new Date(deviceReadAt).toLocaleTimeString()}` : 'Not read yet',
+  )
+
+  /** Raw RSSI means nothing to someone deciding whether to walk closer to the router. */
+  function describeSignal(rssi: number): string {
+    if (rssi >= -50) return 'Excellent'
+    if (rssi >= -60) return 'Good'
+    if (rssi >= -70) return 'Fair'
+    return 'Weak'
+  }
+
+  /** Never throws: on arrival the failure belongs on the card, not in a sticky toast. */
+  async function loadDeviceInfo() {
+    deviceError = ''
+    try {
+      await refreshDevice()
+      deviceReadAt = Date.now()
+    } catch (e) {
+      deviceError = describeError(e)
+    }
+  }
+
+  function handleRefreshDevice() {
+    runAction('device', async () => {
+      await refreshDevice()
+      deviceReadAt = Date.now()
+      deviceError = ''
+      return 'Headset info updated'
+    })
+  }
+
+  onMount(() => {
+    loadDeviceInfo()
+    loadKioskState()
+    // activeSection survives the unmount this view gets on every tab switch; the package read does not.
+    if (activeSection === 'apps') loadPackageState()
+  })
+
+  // --- Quick actions ---
+
+  function readBatteryDetail() {
+    runAction('battery', async () => {
+      const out = await adb.shell('dumpsys battery')
+      assertRealRead()
+      actionOutput = out || '(no output)'
+      return 'Battery detail read'
+    })
+  }
+
+  function toggleHeadsetScreen() {
+    runAction('screen', async () => {
+      await adb.toggleScreen()
+      return 'Screen power key sent'
+    })
+  }
+
+  function restartQuestMenu() {
+    runAction('home', async () => {
+      await adb.restartQuestHome()
+      return 'Quest menu restarted'
+    })
+  }
+
+  function closeBackgroundApps() {
+    runAction('kill', async () => {
+      await adb.killBackground()
+      return 'Background apps closed'
+    })
+  }
+
+  function openAndroidSettings() {
+    runAction('settings', async () => {
+      await adb.openAndroidSettings()
+      return 'Android settings opened on the headset'
+    })
+  }
+
+  function rebootHeadset() {
+    runAction('reboot', async () => {
+      await adb.reboot()
+      return 'Rebooting — the headset is unusable for about a minute'
+    })
+  }
+
+  // --- Settings backup ---
+
+  let backups = $state(persistence.loadSettingsBackups())
+  /** Which snapshot Restore will write. Every kept snapshot is reachable, or the count is a lie. */
+  let restoreIndex = $state(0)
+  let propsOutput = $state('')
+
+  const selectedBackup = $derived(backups[restoreIndex] ?? backups[0])
+
+  const countTweaks = (props: Record<string, string>) => {
+    const n = Object.keys(props).length
+    return `${n} tweak${n === 1 ? '' : 's'}`
+  }
+
+  const backupSummary = $derived(
+    selectedBackup
+      ? `${countTweaks(selectedBackup.props)} from ${formatWhen(selectedBackup.takenAt)}${backups.length > 1 ? ` · ${backups.length} snapshots kept` : ''}`
+      : 'No backup yet.',
+  )
+
+  function formatWhen(takenAt: number): string {
+    return takenAt
+      ? new Date(takenAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'an older version'
+  }
+
+  function backUpSettings() {
+    runAction('backup', async () => {
+      const props = await adb.getCurrentOculusProps()
+      // Six invented props must never become a snapshot that can later be restored onto a real headset.
+      assertRealRead()
+      // Only the props holding a value are stored, so the tally has to come from the snapshot, not the read.
+      const snapshot = persistence.saveSettingsBackup(props)
+      if (!snapshot) throw new Error('Nothing to back up — this headset has no tweaks set')
+      backups = persistence.loadSettingsBackups()
+      restoreIndex = 0
+      return `Backed up ${Object.keys(snapshot.props).length} tweaks`
+    })
+  }
+
+  function restoreSettings() {
+    runAction('restore', async () => {
+      const props = selectedBackup?.props
+      if (!props) throw new Error('No backup to restore')
+      let written = 0
+      for (const [key, value] of Object.entries(props)) {
+        // A blanked prop reads back empty, and `setprop key` with no value is a usage error that
+        // would abort the loop halfway through.
+        if (!value) continue
+        await adb.setprop(key, value)
+        written++
+      }
+      // Non-throwing on purpose: the write already landed, so a failed re-read must not read as a failed restore.
+      await loadDeviceInfo()
+      return `${written} tweaks restored — restart the running app for resolution changes to apply`
+    })
+  }
+
+  function showCurrentSettings() {
+    runAction('props', async () => {
+      const props = await adb.getCurrentOculusProps()
+      assertRealRead()
+      const lines = Object.entries(props).map(([k, v]) => `${k} = ${v}`)
+      propsOutput = lines.join('\n') || 'This headset is on stock settings — nothing has been tweaked.'
+      return lines.length ? `${lines.length} tweaks listed` : 'No tweaks set'
+    })
+  }
+
+  function eraseAllSettings() {
+    runAction('erase', async () => {
+      // The wipe takes its own snapshot: restore used to depend on the user having pressed Save first.
+      const props = await adb.getCurrentOculusProps()
+      assertRealRead()
+      const snapshot = persistence.saveSettingsBackup(props)
+      if (snapshot) {
+        backups = persistence.loadSettingsBackups()
+        restoreIndex = 0
+      }
+      const count = Object.keys(snapshot?.props ?? {}).length
+      await adb.clearAllSettings()
+      await loadDeviceInfo()
+      // A blank headset has nothing to snapshot, so claiming a backup was taken would be a lie.
+      return count ? `${count} tweaks erased — a backup was saved first` : 'Nothing was set — the headset was already on defaults'
+    })
+  }
+
+  // --- Install APK ---
+
+  let apkPath = $state('')
+  let installOutput = $state('')
+  let installFailed = $state(false)
+
+  /** The path lands inside a double-quoted shell string downstream, so a quote would escape it. */
+  const APK_PATH = /^[A-Za-z0-9 _./\\:-]+\.apk$/i
+
+  const installHint = $derived(
+    nativeMode
+      ? 'Path to an APK already on the headset. It replaces the app if that package is installed.'
+      : 'Path to an APK on the computer running the bridge. It replaces the app if that package is installed.',
+  )
+  const installPlaceholder = $derived(nativeMode ? '/sdcard/Download/app.apk' : 'C:\\Users\\you\\Downloads\\app.apk')
+
+  function installApk() {
+    const path = apkPath.trim()
+    if (!path || pending) return
+    if (!APK_PATH.test(path)) {
+      installOutput = 'That does not look like a path to an .apk file.'
+      installFailed = true
+      showToast('Enter a full path ending in .apk', 'error')
+      return
+    }
+    installOutput = 'Installing…'
+    installFailed = false
+    // Through runAction like every other write, so a demo install cannot toast green.
+    runAction('install', async () => {
+      try {
+        const out = await adb.installApk(path)
+        // pm prints Failure and still exits 0 on some builds, so the output is the only real check.
+        if (/failure/i.test(out)) throw new Error(out.trim())
+        recentPaths = rememberValue(recentPaths, path)
+        apkPath = ''
+        if (isDemoMode()) {
+          installOutput = 'No headset attached — nothing was installed.'
+          return 'Nothing installed'
+        }
+        installOutput = out || 'Install finished (no output).'
+        return 'APK installed'
+      } catch (e) {
+        // The path stays in the field: one wrong character should not cost a full retype.
+        installOutput = describeError(e)
+        installFailed = true
+        throw e
+      }
+    })
+  }
+
+  // --- Single app (kiosk) mode ---
+
   let kioskApp = $state(persistence.getKioskApp())
+  let kioskEnabled = $state(false)
+  let kioskUnknown = $state(false)
   let kioskPickerOpen = $state(false)
+  /** applyKiosk runs outside runAction, so `pending` cannot speak for it. */
+  let kioskBusy = $state(false)
 
-  let whitelistEnabled = $state(false)
-  let blacklistEnabled = $state(false)
+  /** The headset is the truth: a locked headset must not render an innocent OFF switch, and neither must no headset. */
+  async function loadKioskState() {
+    try {
+      const raw = await adb.getprop('persist.oculus.kiosk_mode')
+      assertRealRead()
+      kioskEnabled = raw === '1'
+      kioskUnknown = false
+    } catch {
+      kioskUnknown = true
+    }
+  }
+
+  /**
+   * Thrown errors are the contract: Toggle reverts the switch and shows them.
+   *
+   * This is the one headset write that does not go through runAction — it has to throw, and
+   * runAction swallows — so it raises its own flag. Without it "Change app" stays live while
+   * this writes persist.oculus.kiosk_app, which is the very prop that button overwrites.
+   */
+  async function applyKiosk(enabled: boolean) {
+    if (enabled && !kioskApp) throw new Error('Choose an app before locking the headset to it')
+    kioskBusy = true
+    try {
+      await adb.setprop('persist.oculus.kiosk_mode', enabled ? '1' : '0')
+      if (enabled) await adb.setprop('persist.oculus.kiosk_app', kioskApp)
+      // setprop never fails on a property the system ignores, so the read-back is the only real check.
+      const readBack = await adb.getprop('persist.oculus.kiosk_mode')
+      // Without this the fixture read-back blames a device-owner headset for there being no headset.
+      assertRealRead()
+      if (readBack !== (enabled ? '1' : '0')) {
+        throw new Error(`The headset did not keep the setting (reads "${readBack || 'empty'}") — this needs a device-owner headset`)
+      }
+      kioskUnknown = false
+      showToast(enabled ? 'Single app mode set — it applies after a headset restart' : 'Single app mode cleared', 'success')
+    } finally {
+      kioskBusy = false
+    }
+  }
+
+  function selectKioskApp(pkg: string) {
+    kioskApp = pkg
+    persistence.setKioskApp(pkg)
+    kioskPickerOpen = false
+    if (!kioskEnabled) return
+    runAction('kiosk-app', async () => {
+      await adb.setprop('persist.oculus.kiosk_app', pkg)
+      return 'Locked app changed — it applies after a headset restart'
+    })
+  }
+
+  // --- Favourite app ---
+
+  let favouriteApp = $state(persistence.getStartupApp())
+  let favouritePickerOpen = $state(false)
+
+  function selectFavouriteApp(pkg: string) {
+    favouriteApp = pkg
+    persistence.setStartupApp(pkg)
+    favouritePickerOpen = false
+  }
+
+  function clearFavouriteApp() {
+    favouriteApp = ''
+    persistence.setStartupApp('')
+  }
+
+  // --- Access control ---
+
+  let requestedMode = $state<AccessMode | null>(null)
+  let accessProgress = $state('')
   let whitelist = $state(persistence.getWhitelist())
   let blacklist = $state(persistence.getBlacklist())
   let whitelistPickerOpen = $state(false)
   let blacklistPickerOpen = $state(false)
 
-  let startupApp = $state(persistence.getStartupApp())
-  let startupEnabled = $state(!!persistence.getStartupApp())
-  let startupPickerOpen = $state(false)
+  // The headset is the truth here too: a stored mode says what this phone last asked for, not what
+  // the library looks like. Everything below is derived from these two reads or from nothing.
+  let installedPkgs = $state<string[]>([])
+  let disabledPkgs = $state<string[]>([])
+  let accessReadAt = $state(0)
+  let accessError = $state('')
+  let accessLoading = $state(false)
 
-  let apkPath = $state('')
-  let installOutput = $state('')
+  const parsePackages = (raw: string) =>
+    raw.split('\n').map(l => l.trim().replace('package:', '')).filter(Boolean)
 
+  async function readPackages(): Promise<{ installed: string[]; disabled: string[] }> {
+    const installed = await adb.getInstalledPackages()
+    const disabled = parsePackages(await adb.shell('pm list packages -d -3'))
+    assertRealRead()
+    return { installed, disabled }
+  }
 
-  let shellInput = $state('')
-  let consoleOutput = $state('')
-  let scripts = $state(persistence.loadUserScripts())
+  async function loadPackageState() {
+    if (accessLoading) return
+    accessLoading = true
+    try {
+      const { installed, disabled } = await readPackages()
+      installedPkgs = installed
+      disabledPkgs = disabled
+      accessReadAt = Date.now()
+      accessError = ''
+    } catch (e) {
+      accessReadAt = 0
+      accessError = describeError(e)
+    } finally {
+      accessLoading = false
+    }
+  }
 
+  const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(v => b.includes(v))
 
-  let detectionMethod = $state<'appusage' | 'logcat'>('appusage')
+  /** The lists are localStorage; only the packages this headset actually has can be swept. */
+  function plannedTargets(mode: AccessMode, installed: string[]): string[] {
+    if (mode === 'off') return []
+    return installed.filter(pkg =>
+      pkg !== SELF_PACKAGE && (mode === 'allow' ? !whitelist.includes(pkg) : blacklist.includes(pkg)),
+    )
+  }
+
+  /** What the headset is in, read back from it. '' means nothing was read, which is not the same as Off. */
+  const headsetMode = $derived.by((): AccessMode | 'mixed' | '' => {
+    if (!accessReadAt) return ''
+    if (disabledPkgs.length === 0) return 'off'
+    if (sameSet(plannedTargets('allow', installedPkgs), disabledPkgs)) return 'allow'
+    if (sameSet(plannedTargets('block', installedPkgs), disabledPkgs)) return 'block'
+    return 'mixed'
+  })
+
+  const accessSummary = $derived(
+    accessLoading
+      ? 'Reading the headset…'
+      : !accessReadAt
+        ? 'Not read from the headset yet.'
+        : headsetMode === 'off'
+          ? `None of the ${installedPkgs.length} sideloaded apps on this headset are disabled.`
+          : headsetMode === 'mixed'
+            ? `${disabledPkgs.length} of ${installedPkgs.length} sideloaded apps are disabled, matching neither list.`
+            : `${disabledPkgs.length} of ${installedPkgs.length} sideloaded apps are disabled, matching your ${headsetMode === 'allow' ? 'allow' : 'block'} list.`,
+  )
+
+  const plannedCount = $derived(requestedMode ? plannedTargets(requestedMode, installedPkgs).length : 0)
+  const allowedInstalled = $derived(whitelist.filter(pkg => installedPkgs.includes(pkg)).length)
+
+  const accessConfirmText = $derived(
+    requestedMode === 'off'
+      ? `Re-enable all ${installedPkgs.length} sideloaded apps on this headset? This includes any you disabled elsewhere.`
+      : requestedMode === 'allow'
+        ? `Disable ${plannedCount} of the ${installedPkgs.length} sideloaded apps on this headset? Only the ${allowedInstalled} of your ${whitelist.length} allowed apps that are actually installed stay; the rest vanish from the library until you switch back to Off.`
+        : `Disable the ${plannedCount} of your ${blacklist.length} blocked apps that are actually installed? They vanish from the library until you switch back to Off.`,
+  )
+
+  /**
+   * Sequential on purpose: dozens of parallel shell spawns with no count is how the old sweep hid
+   * its failures. A package that refuses is counted so the caller can report the real tally.
+   */
+  async function sweepPackages(pkgs: string[], verb: string, run: (pkg: string) => Promise<string>): Promise<number> {
+    let failed = 0
+    for (let i = 0; i < pkgs.length; i++) {
+      accessProgress = `${verb} ${i + 1}/${pkgs.length}…`
+      try {
+        await run(pkgs[i])
+      } catch {
+        failed++
+      }
+    }
+    return failed
+  }
+
+  async function applyAccessMode(next: AccessMode): Promise<string> {
+    const list = next === 'allow' ? whitelist : blacklist
+    if (next !== 'off' && list.length === 0) {
+      throw new Error(next === 'allow'
+        ? 'Pick the allowed apps first — an empty allow list would disable everything'
+        : 'Pick the blocked apps first — an empty block list would change nothing')
+    }
+    // Re-read rather than trust the card: the sweep must act on this headset's list, right now.
+    const { installed } = await readPackages()
+    installedPkgs = installed
+    if (installed.length === 0) throw new Error('Could not read the installed app list — nothing was changed')
+    const targets = plannedTargets(next, installed)
+    if (next !== 'off' && targets.length === 0) {
+      throw new Error(next === 'allow'
+        ? 'Every installed app is on your allow list — nothing would be disabled'
+        : 'None of the apps on your block list are installed — nothing to disable')
+    }
+    try {
+      // Every transition starts from a clean headset, so switching modes — or turning this off — really restores apps.
+      const restoreFailed = await sweepPackages(installed, 'Restoring', adb.enablePackage)
+      // A tally with failures in it is a failed sweep: the library is now in a state nobody asked for.
+      if (restoreFailed) {
+        throw new Error(`${installed.length - restoreFailed} of ${installed.length} apps re-enabled, ${restoreFailed} refused — the headset is in a mixed state`)
+      }
+      if (next === 'off') return `${installed.length} apps re-enabled`
+      const disableFailed = await sweepPackages(targets, 'Disabling', adb.disablePackage)
+      if (disableFailed) {
+        throw new Error(`${targets.length - disableFailed} of ${targets.length} apps disabled, ${disableFailed} refused — the headset is in a mixed state`)
+      }
+      return `${targets.length} apps disabled`
+    } finally {
+      accessProgress = ''
+    }
+  }
+
+  function confirmAccessMode() {
+    const next = requestedMode
+    if (!next) return
+    requestedMode = null
+    runAction('access', async () => {
+      try {
+        return await applyAccessMode(next)
+      } finally {
+        // Nothing is recorded: the segmented control follows the headset, so a half-finished sweep shows as it is.
+        await loadPackageState()
+      }
+    })
+  }
+
+  // --- Quick launch ---
 
   const quickApps: Record<string, string> = {
     'File Manager': 'com.oculus.filemanager',
@@ -45,364 +589,515 @@
     'OVR Metrics': 'com.oculus.ovrmonitormetricsservice',
   }
 
+  let launchPickerOpen = $state(false)
 
-  async function installApk() {
-    if (!apkPath.trim()) return
-    installOutput = 'Installing...'
-    installOutput = await adb.installApk(apkPath.trim())
-    apkPath = ''
+  function launchPackage(pkg: string) {
+    runAction(`launch-${pkg}`, async () => {
+      await adb.launchApp(pkg)
+      return `Launched ${pkg}`
+    })
   }
 
-  function selectKioskApp(pkg: string) {
-    kioskApp = pkg
-    persistence.setKioskApp(pkg)
-    kioskPickerOpen = false
-  }
+  // --- Console ---
 
-  async function toggleKiosk(enabled: boolean) {
-    if (enabled && kioskApp) {
-      await adb.setprop('persist.oculus.kiosk_mode', '1')
-      await adb.setprop('persist.oculus.kiosk_app', kioskApp)
-    } else {
-      await adb.setprop('persist.oculus.kiosk_mode', '0')
+  let shellInput = $state('')
+
+  /** These end the session or take something away; everything else stays one tap. */
+  const DESTRUCTIVE_COMMAND = /\b(pm\s+(uninstall|disable|clear)|rm\s+|svc\s+power|reboot|wipe|am\s+(force-stop|kill))/i
+
+  /** One command control: which control it is, plus the exact text it would send. Editing either disarms. */
+  const commandKey = (control: string, command: string) => `${control}:${command.trim()}`
+
+  const isArmed = (control: string, command: string) => armed === commandKey(control, command)
+
+  /** The tapped control arms itself and says so; no other control and no panel elsewhere can answer for it. */
+  function submitCommand(control: string, command: string) {
+    const cmd = command.trim()
+    if (!cmd || pending) return
+    if (DESTRUCTIVE_COMMAND.test(cmd)) {
+      armAction(commandKey(control, cmd), () => runCommand(cmd))
+      return
     }
+    disarm()
+    runCommand(cmd)
   }
 
-  function selectStartupApp(pkg: string) {
-    startupApp = pkg
-    startupEnabled = true
-    persistence.setStartupApp(pkg)
-    startupPickerOpen = false
+  function runCommand(cmd: string) {
+    runAction('shell', async () => {
+      try {
+        const out = await adb.shell(cmd)
+        // The command is echoed so a stale pane is never mistaken for a fresh result.
+        consoleOutput = `$ ${cmd}\n${out || '(ok, no output)'}`
+        consoleFailed = false
+        recentCommands = rememberValue(recentCommands, cmd)
+        if (cmd === shellInput.trim()) shellInput = ''
+        return 'Command ran'
+      } catch (e) {
+        consoleOutput = `$ ${cmd}\n${describeError(e)}`
+        consoleFailed = true
+        throw e
+      }
+    })
   }
 
-  function clearStartupApp() {
-    startupEnabled = false
-    startupApp = ''
-    persistence.setStartupApp('')
+  // --- Saved scripts ---
+
+  let scripts = $state<UserScript[]>(persistence.loadUserScripts().filter((s): s is UserScript => !!s))
+  let editingIndex = $state(-1)
+  let editName = $state('')
+  let editCommand = $state('')
+
+  function openScriptEditor(index: number) {
+    editingIndex = index
+    editName = scripts[index]?.name ?? ''
+    editCommand = scripts[index]?.command ?? shellInput.trim()
+    disarm()
   }
 
-  async function applyWhitelist() {
-    persistence.setWhitelist(whitelist)
-    const allPkgs = await adb.getInstalledPackages()
-    const toDisable = allPkgs.filter(pkg => !whitelist.includes(pkg))
-    await Promise.all(toDisable.map(pkg => adb.disablePackage(pkg)))
-  }
-
-  async function applyBlacklist() {
-    persistence.setBlacklist(blacklist)
-    await Promise.all(blacklist.map(pkg => adb.disablePackage(pkg)))
-  }
-
-  async function disableAll() {
-    whitelistEnabled = false
-    blacklistEnabled = false
-    const allPkgs = await adb.getInstalledPackages()
-    await Promise.all(allPkgs.map(pkg => adb.enablePackage(pkg)))
-  }
-
-  async function runCommand(input: string, clear: () => void) {
-    if (!input.trim()) return
-    consoleOutput = await adb.shell(input)
-    clear()
-  }
-
-  function handleScriptClick(index: number) {
-    const script = scripts[index]
-    if (script) {
-      adb.shell(script.command).then(out => consoleOutput = out || `Executed: ${script.command}`)
-    } else {
-      editScript(index)
-    }
-  }
-
-  function editScript(index: number) {
-    const name = prompt('Script name:')
-    if (!name) return
-    const command = prompt('Shell command:')
-    if (!command) return
-    scripts[index] = { slot: index, name, command }
+  function saveScript() {
+    const name = editName.trim()
+    const command = editCommand.trim()
+    if (!name || !command) return
+    if (editingIndex >= scripts.length) scripts.push({ slot: scripts.length, name, command })
+    else scripts[editingIndex] = { slot: editingIndex, name, command }
     persistence.saveUserScripts(scripts)
+    editingIndex = -1
   }
 
-
-  async function saveSettings() {
-    const props = await adb.getCurrentOculusProps()
-    persistence.saveSettingsBackup(props)
-    consoleOutput = `Saved ${Object.keys(props).length} settings to backup`
-  }
-
-  async function loadSettings() {
-    const backup = persistence.loadSettingsBackup()
-    if (!backup) { consoleOutput = 'No backup found'; return }
-    for (const [key, value] of Object.entries(backup)) {
-      await adb.setprop(key, value)
-    }
-    consoleOutput = `Restored ${Object.keys(backup).length} settings`
-  }
-
-  async function showCurrentSettings() {
-    const props = await adb.getCurrentOculusProps()
-    consoleOutput = Object.entries(props).map(([k, v]) => `${k} = ${v}`).join('\n') || 'No debug.oculus properties set'
+  function deleteScript() {
+    scripts = scripts.filter((_, i) => i !== editingIndex).map((s, i) => ({ ...s, slot: i }))
+    persistence.saveUserScripts(scripts)
+    editingIndex = -1
   }
 </script>
 
+{#snippet outputPane(text: string, failed: boolean, clear: () => void)}
+  {#if text}
+    <div class="output-wrap">
+      <pre class="output" class:failed={failed}>{text}</pre>
+      <button class="output-clear" onclick={clear}>Clear</button>
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet recents(values: string[], apply: (value: string) => void)}
+  {#if values.length}
+    <div class="recents">
+      {#each values as value}
+        <button class="recent" onclick={() => apply(value)}>{value}</button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
 <div class="sys">
-  <div class="section-tabs">
-    <button class="stab" class:active={activeSection === 'apps'} onclick={() => activeSection = 'apps'}>
-      Apps
-    </button>
-    <button class="stab" class:active={activeSection === 'device'} onclick={() => activeSection = 'device'}>
+  <div class="seg" bind:this={sectionTop}>
+    <button class="seg-btn" class:active={activeSection === 'device'} onclick={() => selectSection('device')}>
       Device
     </button>
-    <button class="stab" class:active={activeSection === 'console'} onclick={() => activeSection = 'console'}>
-      Console
+    <button class="seg-btn" class:active={activeSection === 'apps'} onclick={() => selectSection('apps')}>
+      Apps
     </button>
-    <button class="stab" class:active={activeSection === 'actions'} onclick={() => activeSection = 'actions'}>
-      Actions
+    <button class="seg-btn" class:active={activeSection === 'console'} onclick={() => selectSection('console')}>
+      Console
     </button>
   </div>
 
-  {#if activeSection === 'apps'}
-    <Card title="Install APK">
-      <p class="hint">Install an APK from the device filesystem.</p>
-      <div class="install-row">
-        <input
-          type="text"
-          class="text-input"
-          placeholder="/sdcard/Download/app.apk"
-          bind:value={apkPath}
-          onkeydown={(e) => { if (e.key === 'Enter') installApk() }}
-        />
-        <Button size="sm" variant="primary" onclick={installApk}>Install</Button>
-      </div>
-      {#if installOutput}
-        <pre class="output">{installOutput}</pre>
-      {/if}
-    </Card>
-
-    <Card title="Kiosk Mode">
-      <Toggle
-        bind:checked={kioskEnabled}
-        label="Lock to single app"
-        description={kioskApp ? `App: ${kioskApp.split('.').pop()}` : 'Select an app first'}
-        onchange={toggleKiosk}
-      />
-      {#if !kioskEnabled}
-        <div class="btn-row">
-          <Button onclick={() => kioskPickerOpen = true}>Select App</Button>
-        </div>
-      {:else}
-        <Button variant="danger" onclick={() => { kioskEnabled = false; toggleKiosk(false) }}>Disable</Button>
-      {/if}
-    </Card>
-    <AppPicker bind:open={kioskPickerOpen} title="Select Kiosk App" onselect={selectKioskApp} />
-
-    <Card title="Startup App">
-      <Toggle
-        bind:checked={startupEnabled}
-        label="Launch on boot"
-        description={startupApp ? `App: ${startupApp.split('.').pop()}` : 'No app selected'}
-        onchange={(checked) => { if (!checked) clearStartupApp() }}
-      />
-      <div class="btn-row">
-        <Button onclick={() => startupPickerOpen = true} disabled={startupEnabled}>Select App</Button>
-      </div>
-    </Card>
-    <AppPicker bind:open={startupPickerOpen} title="Select Startup App" onselect={selectStartupApp} />
-
-    <Card title="Access Control">
-      <Toggle
-        bind:checked={whitelistEnabled}
-        label="Allow only selected apps"
-        description={whitelist.length ? `${whitelist.length} apps allowed` : 'No apps selected'}
-        onchange={(on) => { if (on) { blacklistEnabled = false; applyWhitelist() } }}
-      />
-      <Toggle
-        bind:checked={blacklistEnabled}
-        label="Block selected apps"
-        description={blacklist.length ? `${blacklist.length} apps blocked` : 'No apps selected'}
-        onchange={(on) => { if (on) { whitelistEnabled = false; applyBlacklist() } }}
-      />
-      <div class="btn-row wrap">
-        <Button size="sm" onclick={() => whitelistPickerOpen = true}>Edit Allowed</Button>
-        <Button size="sm" onclick={() => blacklistPickerOpen = true}>Edit Blocked</Button>
-        <Button size="sm" variant="danger" onclick={disableAll}>Remove All Restrictions</Button>
-      </div>
-    </Card>
-    <AppPicker bind:open={whitelistPickerOpen} title="Select Allowed Apps" multiple bind:selected={whitelist} />
-    <AppPicker bind:open={blacklistPickerOpen} title="Select Blocked Apps" multiple bind:selected={blacklist} />
-
-    <Card title="Quick Launch">
-      <p class="hint">Open common utility apps on the headset.</p>
-      <div class="quick-grid">
-        {#each Object.entries(quickApps) as [name, pkg]}
-          <button class="quick-btn" onclick={() => adb.launchApp(pkg)}>
-            <span class="qb-label">{name}</span>
-          </button>
-        {/each}
-      </div>
-    </Card>
-
-  {:else if activeSection === 'device'}
+  {#if activeSection === 'device'}
     <Card title="Device Info">
+      <div class="card-head">
+        <span class="read-at" class:stale={fixtureInfo || !deviceReadAt}>{readAtLabel}</span>
+        <Button size="sm" disabled={!!pending} onclick={handleRefreshDevice}>
+          {pending === 'device' ? 'Reading…' : 'Refresh'}
+        </Button>
+      </div>
+      {#if deviceError}
+        <p class="error-line">Could not read the headset — {deviceError}</p>
+      {/if}
       <div class="stats-grid">
         <div class="stat">
           <span class="stat-label">Model</span>
-          <span class="stat-value">{device.model}</span>
+          <span class="stat-value">{show(device.model)}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Battery</span>
+          <span class="stat-value mono">{batteryLine}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Free storage</span>
+          <span class="stat-value mono">{storageLine}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">OS build</span>
+          <span class="stat-value mono">{show(device.firmwareVersion)}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Wi-Fi</span>
+          <span class="stat-value">{show(device.ssid)}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Wi-Fi signal</span>
+          <span class="stat-value mono">{signalLine}</span>
         </div>
         <div class="stat">
           <span class="stat-label">IP</span>
-          <span class="stat-value mono">{device.ip}</span>
+          <span class="stat-value mono">{show(device.ip)}</span>
         </div>
-        <div class="stat">
-          <span class="stat-label">Storage</span>
-          <span class="stat-value mono">{device.freeSpace}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Firmware</span>
-          <span class="stat-value mono">{device.firmwareVersion}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">WiFi</span>
-          <span class="stat-value">{device.ssid}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Signal</span>
-          <span class="stat-value mono">{device.signalStrength}</span>
-        </div>
+      </div>
+    </Card>
+
+    <Card title="Quick Actions">
+      <p class="hint">Common system operations for the headset.</p>
+      <div class="sys-actions">
+        <button class="sys-btn" disabled={!!pending} onclick={readBatteryDetail}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="16" height="10" rx="2" />
+            <line x1="21" y1="10" x2="21" y2="14" />
+          </svg>
+          <span>{pending === 'battery' ? 'Reading…' : 'Battery detail'}</span>
+        </button>
+        <button class="sys-btn" class:armed={armed === 'screen'} disabled={!!pending} onclick={() => armAction('screen', toggleHeadsetScreen)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.36 6.64a9 9 0 11-12.73 0" />
+            <line x1="12" y1="2" x2="12" y2="12" />
+          </svg>
+          <span>{armed === 'screen' ? 'Tap again' : 'Sleep or wake screen'}</span>
+        </button>
+        <button class="sys-btn" class:armed={armed === 'home'} disabled={!!pending} onclick={() => armAction('home', restartQuestMenu)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
+            <path d="M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
+            <path d="M3 21v-5h5" />
+          </svg>
+          <span>{armed === 'home' ? 'Tap again' : 'Restart Quest menu'}</span>
+        </button>
+        <button class="sys-btn danger" class:armed={armed === 'kill'} disabled={!!pending} onclick={() => armAction('kill', closeBackgroundApps)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span>{armed === 'kill' ? 'Tap again' : 'Close background apps'}</span>
+        </button>
+        <button class="sys-btn" disabled={!!pending} onclick={openAndroidSettings}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          <span>Android settings</span>
+        </button>
+      </div>
+      {@render outputPane(actionOutput, false, () => actionOutput = '')}
+      <p class="hint action-note">
+        Sleeping the screen or restarting the menu interrupts whoever is wearing the headset. Closing
+        background apps can drop services the running game depends on.
+      </p>
+      <div class="danger-zone">
+        <Button variant="danger" disabled={!!pending} onclick={() => armAction('reboot', rebootHeadset)}>
+          {armed === 'reboot' ? 'Tap again to reboot' : 'Reboot headset'}
+        </Button>
+        <p class="hint">
+          Ends the running session, loses unsaved progress and drops every tweak that is not a persist
+          property. The headset is unusable for about a minute.
+        </p>
       </div>
     </Card>
 
     <Card title="App Detection">
-      <p class="hint">How the app detects which game is currently running.</p>
-      <div class="detection-toggle">
-        <button
-          class="det-btn"
-          class:active={detectionMethod === 'appusage'}
-          onclick={() => detectionMethod = 'appusage'}
-        >
-          App Usage
-        </button>
-        <button
-          class="det-btn"
-          class:active={detectionMethod === 'logcat'}
-          onclick={() => detectionMethod = 'logcat'}
-        >
-          Logcat
-        </button>
-      </div>
-      <p class="det-hint">
-        {detectionMethod === 'appusage'
-          ? 'Reliable but slightly slower. Detects foreground apps including 2D.'
-          : 'Fast but may miss already-running apps brought to foreground.'}
+      <p class="hint">
+        This build never reads which game is running, so game profiles have to be applied by hand
+        from the Tune tab. The switch that used to sit here picked between two ways of detecting it
+        and changed nothing, so it is gone until one of them is wired up.
       </p>
     </Card>
 
     <Card title="Settings Backup">
-      <p class="hint">Save or restore all debug.oculus properties.</p>
+      <p class="hint">Keep a copy of every tweak on this headset so you can put it back.</p>
+      <p class="backup-state">{backupSummary}</p>
+      {#if backups.length > 1}
+        <div class="snaps">
+          {#each backups as snap, i}
+            <button class="snap" class:on={snap === selectedBackup} disabled={!!pending} onclick={() => restoreIndex = i}>
+              {countTweaks(snap.props)} · {formatWhen(snap.takenAt)}
+            </button>
+          {/each}
+        </div>
+      {/if}
       <div class="settings-actions">
-        <Button onclick={saveSettings}>Save Current</Button>
-        <Button onclick={loadSettings}>Restore Backup</Button>
-        <Button onclick={showCurrentSettings}>View Properties</Button>
-        <Button variant="danger" onclick={() => adb.clearAllSettings()}>Clear All</Button>
+        <Button disabled={!!pending} onclick={backUpSettings}>
+          {pending === 'backup' ? 'Backing up…' : 'Back up now'}
+        </Button>
+        <Button disabled={!!pending || !backups.length} onclick={() => armAction('restore', restoreSettings)}>
+          {#if pending === 'restore'}
+            Restoring…
+          {:else if armed === 'restore'}
+            Tap again to overwrite current tweaks
+          {:else}
+            Restore backup
+          {/if}
+        </Button>
+        <Button disabled={!!pending} onclick={showCurrentSettings}>Show all tweaks</Button>
+      </div>
+      {@render outputPane(propsOutput, false, () => propsOutput = '')}
+      <div class="danger-zone">
+        <Button variant="danger" disabled={!!pending} onclick={() => armAction('erase', eraseAllSettings)}>
+          {#if pending === 'erase'}
+            Erasing…
+          {:else if armed === 'erase'}
+            Tap again to erase every tweak
+          {:else}
+            Erase all tweaks on headset
+          {/if}
+        </Button>
+        <p class="hint">
+          Blanks every debug.oculus property, so Tune and Recording go back to headset defaults too.
+          A backup is taken first. Single app mode is a persist property and survives this.
+        </p>
       </div>
     </Card>
 
     <Card title="File Sharing">
       <Toggle
         checked={false}
-        label="HTTP server"
-        description="Not available — requires native plugin"
+        label="Browse headset files from your phone"
+        description="Not built yet — it needs a file server this build does not ship."
         disabled
       />
     </Card>
 
-  {:else if activeSection === 'console'}
-    <Card title="Shell">
-      <p class="hint">Run shell commands directly on the headset.</p>
-      <div class="console">
-        <div class="input-row">
-          <input
-            type="text"
-            class="text-input"
-            bind:value={shellInput}
-            placeholder="setprop debug.oculus.cpuLevel 4"
-            onkeydown={(e) => { if (e.key === 'Enter') runCommand(shellInput, () => shellInput = '') }}
-          />
-          <Button size="sm" variant="primary" onclick={() => runCommand(shellInput, () => shellInput = '')}>Run</Button>
-        </div>
-        {#if consoleOutput}
-          <pre class="output">{consoleOutput}</pre>
+  {:else if activeSection === 'apps'}
+    <Card title="Install APK">
+      <p class="hint">{installHint}</p>
+      <div class="install-row">
+        <input
+          type="text"
+          class="text-input"
+          placeholder={installPlaceholder}
+          autocapitalize="off"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck={false}
+          enterkeyhint="go"
+          disabled={pending === 'install'}
+          bind:value={apkPath}
+          onkeydown={(e) => { if (e.key === 'Enter') installApk() }}
+        />
+        <Button size="sm" variant="primary" disabled={!!pending || !apkPath.trim()} onclick={installApk}>
+          {pending === 'install' ? 'Installing…' : 'Install'}
+        </Button>
+      </div>
+      {@render recents(recentPaths, (value) => apkPath = value)}
+      {@render outputPane(installOutput, installFailed, () => installOutput = '')}
+    </Card>
+
+    <Card title="Single App Mode">
+      <p class="hint">
+        Kiosk mode: the headset boots straight into one app and stays there. It needs a headset
+        provisioned as device owner — on a normal consumer headset the property is written and
+        ignored, and the check below will say so. It applies after a headset restart.
+      </p>
+      <Toggle
+        bind:checked={kioskEnabled}
+        label="Lock to a single app"
+        description={kioskUnknown
+          ? 'Could not read the headset — this switch may not match it'
+          : kioskApp || 'No app chosen yet'}
+        disabled={(!kioskApp && !kioskEnabled) || !!pending}
+        confirm={kioskEnabled ? 'Unlocks the headset' : 'Locks the headset to one app'}
+        onchange={applyKiosk}
+      />
+      <div class="btn-row">
+        <Button size="sm" disabled={!!pending || kioskBusy} onclick={() => kioskPickerOpen = true}>
+          {kioskApp ? 'Change app' : 'Choose app'}
+        </Button>
+      </div>
+    </Card>
+    <AppPicker bind:open={kioskPickerOpen} title="Lock headset to" current={kioskApp} onselect={selectKioskApp} />
+
+    <Card title="Favourite App">
+      <p class="hint">
+        One tap to open the app you use most. This app has no way to launch anything on headset boot,
+        so nothing happens until you press Launch.
+      </p>
+      <p class="pkg-line">{favouriteApp || 'No app chosen yet'}</p>
+      <div class="btn-row wrap">
+        <Button size="sm" onclick={() => favouritePickerOpen = true}>
+          {favouriteApp ? 'Change app' : 'Choose app'}
+        </Button>
+        <Button size="sm" variant="primary" disabled={!favouriteApp || !!pending} onclick={() => launchPackage(favouriteApp)}>
+          Launch
+        </Button>
+        {#if favouriteApp}
+          <Button size="sm" variant="ghost" onclick={clearFavouriteApp}>Clear</Button>
         {/if}
       </div>
     </Card>
+    <AppPicker bind:open={favouritePickerOpen} title="Favourite app" current={favouriteApp} onselect={selectFavouriteApp} />
 
-    <Card title="Saved Scripts">
-      <p class="hint">Tap to run, long-press to edit. Empty slots can be configured.</p>
-      <div class="script-slots">
-        {#each Array(4) as _, i}
-          <button
-            class="script-slot"
-            class:filled={!!scripts[i]}
-            onclick={() => handleScriptClick(i)}
-            oncontextmenu={(e) => { e.preventDefault(); editScript(i) }}
-          >
-            <span class="slot-num">{i + 1}</span>
-            <span class="slot-label">{scripts[i]?.name || 'Empty slot'}</span>
+    <Card title="Access Control">
+      <p class="hint">
+        Disabled apps disappear from the headset library until you switch this back to Off. Only
+        sideloaded and store apps are touched — Meta's own system apps stay usable. Every change
+        re-enables everything first, so Off really does restore the headset. The mode below is read
+        back from the headset, not remembered from last time, and only apps it actually has are swept.
+      </p>
+      {#if accessError}
+        <p class="error-line">{accessError}</p>
+      {:else}
+        <p class="backup-state">{accessSummary}</p>
+      {/if}
+      <div class="seg">
+        <button class="seg-btn" class:active={headsetMode === 'off'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'off'}>Off</button>
+        <button class="seg-btn" class:active={headsetMode === 'allow'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'allow'}>Allow list</button>
+        <button class="seg-btn" class:active={headsetMode === 'block'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'block'}>Block list</button>
+      </div>
+      {#if requestedMode}
+        <div class="confirm-row">
+          <p class="confirm-text">{accessConfirmText}</p>
+          <div class="btn-row">
+            <Button size="sm" onclick={() => requestedMode = null}>Cancel</Button>
+            <Button size="sm" variant="danger" disabled={!!pending} onclick={confirmAccessMode}>Apply</Button>
+          </div>
+        </div>
+      {/if}
+      {#if accessProgress}
+        <p class="progress">{accessProgress}</p>
+      {/if}
+      <div class="btn-row wrap">
+        <Button size="sm" disabled={!!pending || accessLoading} onclick={loadPackageState}>
+          {accessLoading ? 'Reading…' : 'Check headset'}
+        </Button>
+        <Button size="sm" disabled={!!pending} onclick={() => whitelistPickerOpen = true}>Allowed apps ({whitelist.length})</Button>
+        <Button size="sm" disabled={!!pending} onclick={() => blacklistPickerOpen = true}>Blocked apps ({blacklist.length})</Button>
+      </div>
+    </Card>
+    <AppPicker
+      bind:open={whitelistPickerOpen}
+      title="Allowed Apps"
+      multiple
+      bind:selected={whitelist}
+      ondone={persistence.setWhitelist}
+    />
+    <AppPicker
+      bind:open={blacklistPickerOpen}
+      title="Blocked Apps"
+      multiple
+      bind:selected={blacklist}
+      ondone={persistence.setBlacklist}
+    />
+
+    <Card title="Quick Launch">
+      <p class="hint">Open common utility apps on the headset. A tile fails if that app is not installed.</p>
+      <div class="quick-grid">
+        {#each Object.entries(quickApps) as [name, pkg]}
+          <button class="quick-btn" disabled={!!pending} onclick={() => launchPackage(pkg)}>
+            <span class="qb-label">{name}</span>
           </button>
         {/each}
       </div>
-    </Card>
-
-  {:else if activeSection === 'actions'}
-    <Card title="Quick Actions">
-      <p class="hint">Common system operations for the headset.</p>
-      <div class="sys-actions">
-        <button class="sys-btn" onclick={async () => { consoleOutput = await adb.shell('dumpsys deviceidle'); activeSection = 'console' }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
-            <path d="M13 2v7h7" />
-          </svg>
-          <span>Battery Info</span>
-        </button>
-        <button class="sys-btn" onclick={() => adb.toggleScreen()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18.36 6.64a9 9 0 11-12.73 0" />
-            <line x1="12" y1="2" x2="12" y2="12" />
-          </svg>
-          <span>Toggle Screen</span>
-        </button>
-        <button class="sys-btn" onclick={() => adb.restartQuestHome()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
-            <path d="M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
-            <path d="M3 21v-5h5" />
-          </svg>
-          <span>Restart Home</span>
-        </button>
-        <button class="sys-btn" onclick={() => adb.killBackground()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-          <span>Kill Background</span>
-        </button>
-        <button class="sys-btn" onclick={() => adb.openAndroidSettings()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-          </svg>
-          <span>Android Settings</span>
-        </button>
-        <button class="sys-btn danger" onclick={() => adb.reboot()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-          </svg>
-          <span>Reboot</span>
-        </button>
+      <div class="btn-row">
+        <Button size="sm" onclick={() => launchPickerOpen = true}>Launch another app…</Button>
       </div>
     </Card>
+    <AppPicker bind:open={launchPickerOpen} title="Launch App" onselect={launchPackage} />
+
+  {:else}
+    <Card title="Shell">
+      <p class="hint">Run shell commands directly on the headset.</p>
+      <div class="input-row">
+        <input
+          type="text"
+          class="text-input"
+          bind:value={shellInput}
+          placeholder="pm list packages"
+          autocapitalize="off"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck={false}
+          enterkeyhint="go"
+          disabled={pending === 'shell'}
+          onkeydown={(e) => { if (e.key === 'Enter') submitCommand('run', shellInput) }}
+        />
+        <Button
+          size="sm"
+          variant={isArmed('run', shellInput) ? 'danger' : 'primary'}
+          disabled={!!pending || !shellInput.trim()}
+          onclick={() => submitCommand('run', shellInput)}
+        >
+          {#if pending === 'shell'}
+            Running…
+          {:else if isArmed('run', shellInput)}
+            Tap again
+          {:else}
+            Run
+          {/if}
+        </Button>
+      </div>
+      {#if isArmed('run', shellInput)}
+        <p class="confirm-inline">
+          This command takes something away or ends the session. Tap Run again within five seconds to send it.
+        </p>
+      {/if}
+      {@render recents(recentCommands, (value) => shellInput = value)}
+    </Card>
+
+    <Card title="Saved Scripts">
+      <p class="hint">Tap a saved command to run it. Use the pencil to change or delete one.</p>
+      <div class="script-list">
+        {#each scripts as script, i}
+          <div class="script-row">
+            <button
+              class="script-run"
+              class:armed={isArmed(`tile${i}`, script.command)}
+              disabled={!!pending}
+              onclick={() => submitCommand(`tile${i}`, script.command)}
+            >
+              <span class="script-name">{script.name}</span>
+              <span class="script-cmd">{script.command}</span>
+              {#if isArmed(`tile${i}`, script.command)}
+                <span class="script-warn">Takes something away — tap again within five seconds to run it</span>
+              {/if}
+            </button>
+            <button class="script-edit" aria-label="Edit {script.name}" disabled={!!pending} onclick={() => openScriptEditor(i)}>✎</button>
+          </div>
+        {/each}
+        <button class="script-add" onclick={() => openScriptEditor(scripts.length)}>+ Add a command</button>
+      </div>
+      {#if editingIndex >= 0}
+        <div class="script-editor">
+          <input
+            type="text"
+            class="text-input"
+            placeholder="Name"
+            autocapitalize="off"
+            autocorrect="off"
+            autocomplete="off"
+            spellcheck={false}
+            bind:value={editName}
+          />
+          <input
+            type="text"
+            class="text-input"
+            placeholder="Shell command"
+            autocapitalize="off"
+            autocorrect="off"
+            autocomplete="off"
+            spellcheck={false}
+            bind:value={editCommand}
+          />
+          <div class="btn-row wrap">
+            <Button size="sm" variant="primary" disabled={!editName.trim() || !editCommand.trim()} onclick={saveScript}>Save</Button>
+            <Button size="sm" variant="ghost" onclick={() => editingIndex = -1}>Cancel</Button>
+            {#if editingIndex < scripts.length}
+              <Button size="sm" variant="danger" onclick={() => armAction('script-delete', deleteScript)}>
+                {armed === 'script-delete' ? 'Tap again to delete' : 'Delete'}
+              </Button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+    </Card>
+
+    {@render outputPane(consoleOutput, consoleFailed, () => { consoleOutput = ''; consoleFailed = false })}
   {/if}
 </div>
 
@@ -414,8 +1109,8 @@
     gap: 12px;
   }
 
-  /* Section tabs (matches Recording pattern) */
-  .section-tabs {
+  /* One segmented-strip recipe: the section tabs and Access Control both use it. */
+  .seg {
     display: flex;
     gap: 0;
     border-radius: var(--radius);
@@ -423,7 +1118,7 @@
     border: 1px solid var(--border);
   }
 
-  .stab {
+  .seg-btn {
     flex: 1;
     height: 44px;
     background: var(--surface-elevated);
@@ -436,14 +1131,19 @@
     transition: all var(--duration-fast) var(--ease-out);
   }
 
-  .stab:last-child {
+  .seg-btn:last-child {
     border-right: none;
   }
 
-  .stab.active {
+  .seg-btn.active {
     background: var(--primary-glow);
     color: var(--primary);
     box-shadow: 0 0 12px var(--primary-glow);
+  }
+
+  .seg-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .hint {
@@ -451,6 +1151,25 @@
     color: var(--text-muted);
     line-height: 1.5;
     margin-bottom: 8px;
+  }
+
+  .action-note {
+    margin: 10px 0 0;
+  }
+
+  .error-line {
+    margin-bottom: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+
+  .progress {
+    margin-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--primary);
   }
 
   .btn-row {
@@ -461,6 +1180,23 @@
 
   .btn-row.wrap {
     flex-wrap: wrap;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .read-at {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .read-at.stale {
+    color: var(--warning);
   }
 
   /* Shared input styles */
@@ -487,26 +1223,119 @@
     color: var(--text-muted);
   }
 
+  /* A field the running action will clear or read must not accept typing meanwhile. */
+  .text-input:disabled {
+    opacity: 0.5;
+  }
+
+  .output-wrap {
+    position: relative;
+  }
+
   .output {
     margin-top: 8px;
-    max-height: 180px;
+    /* pre + horizontal scroll: break-all used to split package names mid-token. */
+    max-height: 50vh;
     overflow: auto;
-    padding: 14px;
+    padding: 14px 60px 14px 14px;
     background: var(--surface-solid);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--primary);
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre;
     line-height: 1.6;
+  }
+
+  .output.failed {
+    color: var(--danger);
+    border-color: var(--danger-dim);
+  }
+
+  .output-clear {
+    position: absolute;
+    top: 14px;
+    right: 8px;
+    height: 28px;
+    padding: 0 10px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .recents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .recent {
+    max-width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+
+  .confirm-row {
+    margin-top: 10px;
+    padding: 12px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--danger-dim);
+    border-radius: var(--radius);
+  }
+
+  .confirm-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  /* The confirm for a command sits with the control that armed it, never in a panel further down. */
+  .confirm-inline {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--warning);
+  }
+
+  .danger-zone {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .danger-zone .hint {
+    margin-bottom: 0;
   }
 
   /* Apps section */
   .install-row {
     display: flex;
     gap: 8px;
+  }
+
+  .pkg-line {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
 
   .quick-grid {
@@ -535,6 +1364,11 @@
     transform: scale(0.97);
   }
 
+  .quick-btn:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
   .qb-label {
     font-size: 14px;
     font-weight: 500;
@@ -552,6 +1386,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
   .stat-label {
@@ -566,6 +1401,7 @@
     font-size: 16px;
     font-weight: 600;
     color: var(--text);
+    overflow-wrap: anywhere;
   }
 
   .mono {
@@ -573,42 +1409,10 @@
     font-size: 14px;
   }
 
-  .detection-toggle {
-    display: flex;
-    gap: 0;
-    border-radius: var(--radius);
-    overflow: hidden;
-    border: 1px solid var(--border);
+  .backup-state {
     margin-bottom: 10px;
-  }
-
-  .det-btn {
-    flex: 1;
-    height: 44px;
-    background: var(--surface-elevated);
-    border: none;
-    border-right: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all var(--duration-fast) var(--ease-out);
-  }
-
-  .det-btn:last-child {
-    border-right: none;
-  }
-
-  .det-btn.active {
-    background: var(--primary-glow);
-    color: var(--primary);
-    box-shadow: 0 0 12px var(--primary-glow);
-  }
-
-  .det-hint {
     font-size: 13px;
-    color: var(--text-muted);
-    line-height: 1.5;
+    color: var(--text-secondary);
   }
 
   .settings-actions {
@@ -617,72 +1421,144 @@
     gap: 8px;
   }
 
-  /* Console section */
-  .console {
+  /* One chip per kept snapshot: three are stored, so all three have to be reachable. */
+  .snaps {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
   }
 
+  .snap {
+    min-height: 44px;
+    padding: 0 12px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .snap.on {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .snap:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  /* Console section */
   .input-row {
     display: flex;
     gap: 8px;
   }
 
-  .script-slots {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .script-list {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
 
-  .script-slot {
+  .script-row {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .script-run {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 14px;
     background: var(--surface-elevated);
-    border: 1px dashed var(--border);
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
     border-radius: var(--radius);
+    text-align: left;
     cursor: pointer;
+    user-select: none;
+    -webkit-touch-callout: none;
     transition: all var(--duration-fast) var(--ease-out);
   }
 
-  .script-slot:hover {
+  .script-run:hover {
     background: var(--surface-hover);
-    border-style: solid;
   }
 
-  .script-slot.filled {
-    border-style: solid;
-    border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  .script-run:disabled {
+    opacity: 0.35;
+    pointer-events: none;
   }
 
-  .script-slot.filled .slot-label {
-    color: var(--text-secondary);
+  .script-run.armed {
+    border-color: var(--warning);
+    background: var(--surface-hover);
   }
 
-  .slot-num {
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    border: 1px solid var(--border);
+  .script-warn {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--warning);
+    white-space: normal;
+  }
+
+  .script-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  /* The command is on the tile because one tap runs it — a slot named 'clean' could be an uninstall. */
+  .script-cmd {
     font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 11px;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .script-edit {
+    width: 44px;
     flex-shrink: 0;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
   }
 
-  .slot-label {
-    font-size: 13px;
+  .script-edit:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  .script-add {
+    height: 44px;
+    background: none;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
     color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
   }
 
-  /* Actions section */
+  .script-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Quick actions grid */
   .sys-actions {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -712,6 +1588,11 @@
     transform: scale(0.95);
   }
 
+  .sys-btn:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
   .sys-btn svg {
     width: 22px;
     height: 22px;
@@ -735,5 +1616,13 @@
 
   .sys-btn.danger span {
     color: var(--danger);
+  }
+
+  .sys-btn.armed {
+    border-color: var(--warning);
+  }
+
+  .sys-btn.armed span {
+    color: var(--warning);
   }
 </style>
