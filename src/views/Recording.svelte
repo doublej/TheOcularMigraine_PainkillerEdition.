@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Header from '../lib/components/layout/Header.svelte'
   import Card from '../lib/components/ui/Card.svelte'
   import Button from '../lib/components/ui/Button.svelte'
   import Slider from '../lib/components/ui/Slider.svelte'
@@ -59,8 +58,6 @@
   }
 </script>
 
-<Header title="Recording" />
-
 <div class="rec">
   <div class="section-tabs">
     <button class="stab" class:active={activeSection === 'settings'} onclick={() => activeSection = 'settings'}>
@@ -114,7 +111,7 @@
         step={1000}
         label="Bitrate"
         unit=" kbps"
-        color="#f59e0b"
+        color="var(--accent-amber)"
       />
       <div class="fps-picker">
         <span class="fps-label">Frame Rate</span>
@@ -148,10 +145,10 @@
 
     <Card title="FOV Crop">
       <div class="crop-grid">
-        <Slider bind:value={rec.fovCrop.up} min={0} max={100} label="Up" color="#a78bfa" />
-        <Slider bind:value={rec.fovCrop.down} min={0} max={100} label="Down" color="#a78bfa" />
-        <Slider bind:value={rec.fovCrop.inward} min={0} max={100} label="Inward" color="#a78bfa" />
-        <Slider bind:value={rec.fovCrop.outward} min={0} max={100} label="Outward" color="#a78bfa" />
+        <Slider bind:value={rec.fovCrop.up} min={0} max={100} label="Up" color="var(--accent-grape)" />
+        <Slider bind:value={rec.fovCrop.down} min={0} max={100} label="Down" color="var(--accent-grape)" />
+        <Slider bind:value={rec.fovCrop.inward} min={0} max={100} label="Inward" color="var(--accent-grape)" />
+        <Slider bind:value={rec.fovCrop.outward} min={0} max={100} label="Outward" color="var(--accent-grape)" />
       </div>
       <div class="crop-actions">
         <Button size="sm" onclick={setOptimalCrop}>Optimal Crop</Button>
@@ -164,8 +161,8 @@
     <Card title="Advanced">
       <Toggle
         bind:checked={rec.adaclocks}
-        label="Adaptive Clocking"
-        description="Scale performance based on demand"
+        label="Adaptive clocking"
+        description="Adjust GPU/CPU clocks during capture"
       />
       <Slider
         bind:value={rec.swapInterval}
@@ -188,10 +185,10 @@
     </div>
 
   {:else if activeSection === 'profiles'}
-    <Card title="Recording Profiles">
-      <p class="empty">Save your current recording settings as a profile to quickly switch between configurations for different games.</p>
+    <Card title="Profiles">
+      <p class="hint">Save and recall recording configurations per game.</p>
       <div class="profile-actions">
-        <Button variant="primary" onclick={saveRecProfile}>Save Current as Profile</Button>
+        <Button variant="primary" onclick={saveRecProfile}>Save Current</Button>
         <Button onclick={() => showProfileList = !showProfileList}>
           {showProfileList ? 'Hide Profiles' : 'Load Profile'}
         </Button>
@@ -269,7 +266,7 @@
   .stab.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .presets {
@@ -352,9 +349,9 @@
   }
 
   .fps-btn.active {
-    background: color-mix(in srgb, #f59e0b 12%, transparent);
-    color: #f59e0b;
-    box-shadow: inset 0 -2px 0 #f59e0b;
+    background: color-mix(in srgb, var(--accent-amber) 12%, transparent);
+    color: var(--accent-amber);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-amber) 20%, transparent);
   }
 
   .eye-picker {
@@ -385,7 +382,7 @@
   .eye-btn.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .crop-grid {
@@ -431,9 +428,9 @@
 
   .record-btn.recording {
     border-color: var(--danger);
-    background: rgba(239, 68, 68, 0.06);
+    background: rgba(250, 56, 62, 0.06);
     color: var(--danger);
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 20px rgba(250, 56, 62, 0.1);
   }
 
   .rec-dot {
@@ -453,14 +450,15 @@
     50% { opacity: 0.2; }
   }
 
-  .empty {
-    font-size: 14px;
+  .hint, .empty {
+    font-size: 13px;
     color: var(--text-muted);
-    line-height: 1.6;
+    line-height: 1.5;
+    margin-bottom: 8px;
   }
 
   .profile-actions {
-    margin-top: 10px;
+    margin-top: 4px;
     display: flex;
     flex-direction: column;
     gap: 8px;

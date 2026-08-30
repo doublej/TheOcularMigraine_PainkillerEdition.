@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Header from '../lib/components/layout/Header.svelte'
   import Card from '../lib/components/ui/Card.svelte'
   import Button from '../lib/components/ui/Button.svelte'
   import Toggle from '../lib/components/ui/Toggle.svelte'
@@ -32,7 +31,6 @@
   let installOutput = $state('')
 
 
-  let adbInput = $state('')
   let shellInput = $state('')
   let consoleOutput = $state('')
   let scripts = $state(persistence.loadUserScripts())
@@ -148,8 +146,6 @@
   }
 </script>
 
-<Header title="System" />
-
 <div class="sys">
   <div class="section-tabs">
     <button class="stab" class:active={activeSection === 'apps'} onclick={() => activeSection = 'apps'}>
@@ -168,6 +164,7 @@
 
   {#if activeSection === 'apps'}
     <Card title="Install APK">
+      <p class="hint">Install an APK from the device filesystem.</p>
       <div class="install-row">
         <input
           type="text"
@@ -184,19 +181,18 @@
     </Card>
 
     <Card title="Kiosk Mode">
-      <p class="hint">Lock the headset to a single app.</p>
       <Toggle
         bind:checked={kioskEnabled}
-        label="Kiosk Mode"
-        description={kioskApp ? `Locked to: ${kioskApp}` : 'Not configured'}
+        label="Lock to single app"
+        description={kioskApp ? `App: ${kioskApp.split('.').pop()}` : 'Select an app first'}
         onchange={toggleKiosk}
       />
       {#if !kioskEnabled}
         <div class="btn-row">
-          <Button onclick={() => kioskPickerOpen = true}>Select Kiosk App</Button>
+          <Button onclick={() => kioskPickerOpen = true}>Select App</Button>
         </div>
       {:else}
-        <Button variant="danger" onclick={() => { kioskEnabled = false; toggleKiosk(false) }}>Disable Kiosk Mode</Button>
+        <Button variant="danger" onclick={() => { kioskEnabled = false; toggleKiosk(false) }}>Disable</Button>
       {/if}
     </Card>
     <AppPicker bind:open={kioskPickerOpen} title="Select Kiosk App" onselect={selectKioskApp} />
@@ -204,8 +200,8 @@
     <Card title="Startup App">
       <Toggle
         bind:checked={startupEnabled}
-        label="Auto-launch on boot"
-        description={startupApp || 'No startup app set'}
+        label="Launch on boot"
+        description={startupApp ? `App: ${startupApp.split('.').pop()}` : 'No app selected'}
         onchange={(checked) => { if (!checked) clearStartupApp() }}
       />
       <div class="btn-row">
@@ -215,29 +211,29 @@
     <AppPicker bind:open={startupPickerOpen} title="Select Startup App" onselect={selectStartupApp} />
 
     <Card title="Access Control">
-      <p class="hint">Restrict which apps can be launched. Enabling one list disables the other.</p>
       <Toggle
         bind:checked={whitelistEnabled}
-        label="Whitelist"
-        description={whitelist.length ? `${whitelist.length} apps whitelisted` : 'Only whitelisted apps can run'}
+        label="Allow only selected apps"
+        description={whitelist.length ? `${whitelist.length} apps allowed` : 'No apps selected'}
         onchange={(on) => { if (on) { blacklistEnabled = false; applyWhitelist() } }}
       />
       <Toggle
         bind:checked={blacklistEnabled}
-        label="Blacklist"
-        description={blacklist.length ? `${blacklist.length} apps blacklisted` : 'Blacklisted apps are blocked'}
+        label="Block selected apps"
+        description={blacklist.length ? `${blacklist.length} apps blocked` : 'No apps selected'}
         onchange={(on) => { if (on) { whitelistEnabled = false; applyBlacklist() } }}
       />
       <div class="btn-row wrap">
-        <Button size="sm" onclick={() => whitelistPickerOpen = true}>Edit Whitelist</Button>
-        <Button size="sm" onclick={() => blacklistPickerOpen = true}>Edit Blacklist</Button>
-        <Button size="sm" variant="danger" onclick={disableAll}>Disable All</Button>
+        <Button size="sm" onclick={() => whitelistPickerOpen = true}>Edit Allowed</Button>
+        <Button size="sm" onclick={() => blacklistPickerOpen = true}>Edit Blocked</Button>
+        <Button size="sm" variant="danger" onclick={disableAll}>Remove All Restrictions</Button>
       </div>
     </Card>
-    <AppPicker bind:open={whitelistPickerOpen} title="Edit Whitelist" multiple bind:selected={whitelist} />
-    <AppPicker bind:open={blacklistPickerOpen} title="Edit Blacklist" multiple bind:selected={blacklist} />
+    <AppPicker bind:open={whitelistPickerOpen} title="Select Allowed Apps" multiple bind:selected={whitelist} />
+    <AppPicker bind:open={blacklistPickerOpen} title="Select Blocked Apps" multiple bind:selected={blacklist} />
 
     <Card title="Quick Launch">
+      <p class="hint">Open common utility apps on the headset.</p>
       <div class="quick-grid">
         {#each Object.entries(quickApps) as [name, pkg]}
           <button class="quick-btn" onclick={() => adb.launchApp(pkg)}>
@@ -277,7 +273,8 @@
       </div>
     </Card>
 
-    <Card title="Detection">
+    <Card title="App Detection">
+      <p class="hint">How the app detects which game is currently running.</p>
       <div class="detection-toggle">
         <button
           class="det-btn"
@@ -301,43 +298,35 @@
       </p>
     </Card>
 
-    <Card title="Settings">
+    <Card title="Settings Backup">
+      <p class="hint">Save or restore all debug.oculus properties.</p>
       <div class="settings-actions">
-        <Button onclick={saveSettings}>Save Settings to File</Button>
-        <Button onclick={loadSettings}>Load Settings from File</Button>
-        <Button onclick={showCurrentSettings}>Current Settings</Button>
-        <Button variant="danger" onclick={() => adb.clearAllSettings()}>Load System Defaults</Button>
+        <Button onclick={saveSettings}>Save Current</Button>
+        <Button onclick={loadSettings}>Restore Backup</Button>
+        <Button onclick={showCurrentSettings}>View Properties</Button>
+        <Button variant="danger" onclick={() => adb.clearAllSettings()}>Clear All</Button>
       </div>
     </Card>
 
-    <Card title="Web Server">
+    <Card title="File Sharing">
       <Toggle
         checked={false}
-        label="File Sharing"
-        description="Not available — requires native HTTP server plugin"
+        label="HTTP server"
+        description="Not available — requires native plugin"
         disabled
       />
     </Card>
 
   {:else if activeSection === 'console'}
-    <Card title="ADB Console">
+    <Card title="Shell">
+      <p class="hint">Run shell commands directly on the headset.</p>
       <div class="console">
         <div class="input-row">
           <input
             type="text"
             class="text-input"
-            bind:value={adbInput}
-            placeholder="adb command..."
-            onkeydown={(e) => { if (e.key === 'Enter') runCommand(adbInput, () => adbInput = '') }}
-          />
-          <Button size="sm" variant="primary" onclick={() => runCommand(adbInput, () => adbInput = '')}>Run</Button>
-        </div>
-        <div class="input-row">
-          <input
-            type="text"
-            class="text-input"
             bind:value={shellInput}
-            placeholder="shell command..."
+            placeholder="setprop debug.oculus.cpuLevel 4"
             onkeydown={(e) => { if (e.key === 'Enter') runCommand(shellInput, () => shellInput = '') }}
           />
           <Button size="sm" variant="primary" onclick={() => runCommand(shellInput, () => shellInput = '')}>Run</Button>
@@ -348,8 +337,8 @@
       </div>
     </Card>
 
-    <Card title="User Scripts">
-      <p class="hint">Tap empty slot to create. Tap saved slot to run. Long-press to edit.</p>
+    <Card title="Saved Scripts">
+      <p class="hint">Tap to run, long-press to edit. Empty slots can be configured.</p>
       <div class="script-slots">
         {#each Array(4) as _, i}
           <button
@@ -366,21 +355,22 @@
     </Card>
 
   {:else if activeSection === 'actions'}
-    <Card title="System Actions">
+    <Card title="Quick Actions">
+      <p class="hint">Common system operations for the headset.</p>
       <div class="sys-actions">
         <button class="sys-btn" onclick={async () => { consoleOutput = await adb.shell('dumpsys deviceidle'); activeSection = 'console' }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
             <path d="M13 2v7h7" />
           </svg>
-          <span>Battery Opt.</span>
+          <span>Battery Info</span>
         </button>
         <button class="sys-btn" onclick={() => adb.toggleScreen()}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18.36 6.64a9 9 0 11-12.73 0" />
             <line x1="12" y1="2" x2="12" y2="12" />
           </svg>
-          <span>Disable Monitor</span>
+          <span>Toggle Screen</span>
         </button>
         <button class="sys-btn" onclick={() => adb.restartQuestHome()}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -453,7 +443,7 @@
   .stab.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .hint {
@@ -502,7 +492,7 @@
     max-height: 180px;
     overflow: auto;
     padding: 14px;
-    background: #040608;
+    background: var(--surface-solid);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     font-family: var(--font-mono);
@@ -612,7 +602,7 @@
   .det-btn.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .det-hint {

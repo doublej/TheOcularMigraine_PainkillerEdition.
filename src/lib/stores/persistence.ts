@@ -27,6 +27,8 @@ const KEYS = {
   KIOSK_APP: 'tom_kiosk_app',
   WHITELIST: 'tom_whitelist',
   BLACKLIST: 'tom_blacklist',
+  DISPLAY: 'tom_display_settings',
+  RECORDING: 'tom_recording_settings',
 } as const
 
 function load<T>(key: string, fallback: T): T {
@@ -65,3 +67,9 @@ export const setWhitelist = (pkgs: string[]) => save(KEYS.WHITELIST, pkgs)
 
 export const getBlacklist = () => load<string[]>(KEYS.BLACKLIST, [])
 export const setBlacklist = (pkgs: string[]) => save(KEYS.BLACKLIST, pkgs)
+
+export const loadDisplaySettings = () => load<DisplaySettings | null>(KEYS.DISPLAY, null)
+export const saveDisplaySettings = (s: DisplaySettings) => save(KEYS.DISPLAY, s)
+
+export const loadRecordingSettings = () => load<RecordingSettings | null>(KEYS.RECORDING, null)
+export const saveRecordingSettings = (s: RecordingSettings) => save(KEYS.RECORDING, s)

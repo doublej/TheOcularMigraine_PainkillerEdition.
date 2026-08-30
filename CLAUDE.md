@@ -1,4 +1,4 @@
-# The Ocular Migraine MCP
+# The Ocular Migraine: Revisualized
 
 Svelte 5 + Capacitor app for managing Meta Quest headsets (1/2/3/Pro) via ADB `debug.oculus.*` properties. Runs on-device as Android app or in browser with mock ADB.
 

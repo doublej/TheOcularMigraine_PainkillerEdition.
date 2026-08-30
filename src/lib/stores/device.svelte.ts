@@ -1,4 +1,6 @@
 import * as adb from '../bridge/adb'
+import type { Mode } from '../bridge/adb'
+import * as persistence from './persistence'
 
 export interface DeviceInfo {
   name: string
@@ -58,7 +60,7 @@ let device = $state<DeviceInfo>({
   firmwareVersion: 'v62.0',
 })
 
-let display = $state<DisplaySettings>({
+const defaultDisplay: DisplaySettings = {
   resolutionWidth: 1832,
   resolutionHeight: 1920,
   refreshRate: 120,
@@ -68,9 +70,9 @@ let display = $state<DisplaySettings>({
   cpuDynamic: true,
   gpuDynamic: true,
   ffrDynamic: false,
-})
+}
 
-let recording = $state<RecordingSettings>({
+const defaultRecording: RecordingSettings = {
   width: 1920,
   height: 1080,
   bitrate: 20000,
@@ -79,21 +81,36 @@ let recording = $state<RecordingSettings>({
   fovCrop: { up: 0, down: 0, inward: 0, outward: 0 },
   swapInterval: 1,
   adaclocks: true,
-})
+}
+
+let display = $state<DisplaySettings>(persistence.loadDisplaySettings() ?? { ...defaultDisplay })
+let recording = $state<RecordingSettings>(persistence.loadRecordingSettings() ?? { ...defaultRecording })
 
 let profiles = $state<GameProfile[]>([])
+
+let connectionMode = $state<Mode>('mock')
+let serverConnected = $state(true)
 
 export function getDevice() { return device }
 export function getDisplay() { return display }
 export function getRecording() { return recording }
 export function getProfiles() { return profiles }
+export function getConnectionMode() { return connectionMode }
+export function getServerConnected() { return serverConnected }
+
+export function refreshConnectionState() {
+  connectionMode = adb.getConnectionMode()
+  serverConnected = adb.isServerConnected()
+}
 
 export function updateDisplay(patch: Partial<DisplaySettings>) {
   Object.assign(display, patch)
+  persistence.saveDisplaySettings(display)
 }
 
 export function updateRecording(patch: Partial<RecordingSettings>) {
   Object.assign(recording, patch)
+  persistence.saveRecordingSettings(recording)
 }
 
 export function addProfile(profile: GameProfile) {
@@ -124,4 +141,6 @@ export async function refreshDevice() {
   device.signalStrength = wifi.signal
   if (firmware) device.firmwareVersion = firmware
   Object.assign(display, displaySettings)
+  persistence.saveDisplaySettings(display)
+  refreshConnectionState()
 }

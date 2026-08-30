@@ -5,3 +5,6 @@ android/
 ios/
 *.local
 .DS_Store
+.session-search*/
+screenshots/raw/
+screenshots/test-results/

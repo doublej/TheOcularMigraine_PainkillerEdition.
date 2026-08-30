@@ -1,62 +1,97 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { getActiveTab, setActiveTab, type Tab } from '../../stores/navigation.svelte'
 
   let { title = '', status }: { title?: string; status?: Snippet } = $props()
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'tune', label: 'Tune' },
+    { id: 'recording', label: 'Record' },
+    { id: 'system', label: 'System' },
+  ]
 </script>
 
 <header class="header">
-  <div class="header-mark">
-    <svg viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
-      <circle cx="10" cy="10" r="3" fill="var(--primary)"/>
-    </svg>
+  <div class="header-top">
+    <h1>{title}</h1>
+    {#if status}
+      <div class="header-status">
+        {@render status()}
+      </div>
+    {/if}
   </div>
-  <h1>{title}</h1>
-  {#if status}
-    <div class="header-status">
-      {@render status()}
-    </div>
-  {/if}
+  <nav class="header-tabs">
+    {#each tabs as tab}
+      <button
+        class="htab"
+        class:active={getActiveTab() === tab.id}
+        onclick={() => setActiveTab(tab.id)}
+      >
+        {tab.label}
+      </button>
+    {/each}
+  </nav>
 </header>
 
 <style>
   .header {
-    height: var(--header-height);
+    flex-shrink: 0;
+    padding: 12px 16px 0;
+  }
+
+  .header-top {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 0 18px;
-    flex-shrink: 0;
-  }
-
-  .header-mark {
-    width: 24px;
-    height: 24px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .header-mark svg {
-    width: 100%;
-    height: 100%;
+    justify-content: space-between;
+    margin-bottom: 10px;
   }
 
   h1 {
     font-family: var(--font-display);
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 20px;
+    font-weight: 700;
     color: var(--text);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
   }
 
   .header-status {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 10px;
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-secondary);
-    flex-shrink: 0;
+  }
+
+  .header-tabs {
+    display: flex;
+    gap: 0;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .htab {
+    flex: 1;
+    height: 38px;
+    background: var(--surface-elevated);
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+
+  .htab:last-child {
+    border-right: none;
+  }
+
+  .htab.active {
+    background: var(--primary-glow);
+    color: var(--primary);
+    box-shadow: var(--glow-primary);
   }
 </style>

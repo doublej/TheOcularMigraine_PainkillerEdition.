@@ -10,7 +10,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "build:android": "vite build && npx cap sync android",
     "apk:debug": "vite build && npx cap sync android && cd android && ./gradlew assembleDebug",
-    "install:quest": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk"
+    "install:quest": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
+    "server": "bun run server.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
@@ -25,8 +26,8 @@
     "@capacitor/app": "^8.1.0",
     "@capacitor/cli": "8.3.0",
     "@capacitor/core": "8.3.0",
-    "@fontsource-variable/outfit": "^5.2.8",
-    "@fontsource-variable/sora": "^5.2.8",
-    "@fontsource/space-mono": "^5.2.9"
+    "@fontsource-variable/dm-sans": "^5.2.0",
+    "@fontsource-variable/manrope": "^5.2.0",
+    "@fontsource/ibm-plex-mono": "^5.2.0"
   }
 }

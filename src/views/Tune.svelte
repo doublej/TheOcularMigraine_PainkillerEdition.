@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import Header from '../lib/components/layout/Header.svelte'
   import Card from '../lib/components/ui/Card.svelte'
   import Button from '../lib/components/ui/Button.svelte'
   import LevelPicker from '../lib/components/ui/LevelPicker.svelte'
@@ -8,6 +7,7 @@
   import FrequencyPicker from '../lib/components/ui/FrequencyPicker.svelte'
   import AppPicker from '../lib/components/ui/AppPicker.svelte'
   import { getDevice, getDisplay, updateDisplay, getProfiles, addProfile, refreshDevice, type GameProfile } from '../lib/stores/device.svelte'
+  import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
 
@@ -38,30 +38,55 @@
   let showPresetList = $state(false)
   let presets = $state(persistence.loadPresets())
 
+  async function applySetting(fn: () => Promise<void>) {
+    try {
+      await fn()
+      persistence.saveDisplaySettings(display)
+    } catch (e) {
+      showToast(`Failed: ${e instanceof Error ? e.message : e}`, 'error', 4000)
+    }
+  }
+
   async function refresh() {
     refreshing = true
     await refreshDevice()
     refreshing = false
   }
 
-  function applyDisplayToDevice(settings: typeof display) {
+  async function applyDisplayToDevice(settings: typeof display) {
     updateDisplay(settings)
-    adb.setResolution(settings.resolutionWidth, settings.resolutionHeight)
-    adb.setRefreshRate(settings.refreshRate)
-    adb.setCpuLevel(settings.cpuLevel, settings.cpuDynamic)
-    adb.setGpuLevel(settings.gpuLevel, settings.gpuDynamic)
-    adb.setFfrLevel(settings.ffrLevel, settings.ffrDynamic)
+    try {
+      await Promise.all([
+        adb.setResolution(settings.resolutionWidth, settings.resolutionHeight),
+        adb.setRefreshRate(settings.refreshRate),
+        adb.setCpuLevel(settings.cpuLevel, settings.cpuDynamic),
+        adb.setGpuLevel(settings.gpuLevel, settings.gpuDynamic),
+        adb.setFfrLevel(settings.ffrLevel, settings.ffrDynamic),
+      ])
+      showToast('Settings applied', 'success')
+    } catch (e) {
+      showToast(`Failed to apply: ${e instanceof Error ? e.message : e}`, 'error', 4000)
+    }
   }
 
-  function applyResolution(w: number, h: number) {
+  async function applyResolution(w: number, h: number) {
     resW = w
     resH = h
     updateDisplay({ resolutionWidth: w, resolutionHeight: h })
-    adb.setResolution(w, h)
+    try {
+      await adb.setResolution(w, h)
+    } catch (e) {
+      showToast(`Resolution failed: ${e instanceof Error ? e.message : e}`, 'error', 4000)
+    }
   }
 
-  function resetDefaults() {
-    adb.clearAllSettings()
+  async function resetDefaults() {
+    try {
+      await adb.clearAllSettings()
+      showToast('Settings reset', 'success')
+    } catch (e) {
+      showToast(`Reset failed: ${e instanceof Error ? e.message : e}`, 'error', 4000)
+    }
     updateDisplay({
       resolutionWidth: 1832,
       resolutionHeight: 1920,
@@ -109,17 +134,10 @@
     await refresh()
     resW = display.resolutionWidth
     resH = display.resolutionHeight
+    // Re-apply persisted settings to device on startup
+    applyDisplayToDevice(display)
   })
 </script>
-
-<Header title="Ocular Migraine">
-  {#snippet status()}
-    <span class="status-chip" class:low={device.battery < 20} class:charging={device.charging}>
-      {device.battery}%
-    </span>
-    <span class="status-wifi">{device.ssid}</span>
-  {/snippet}
-</Header>
 
 <div class="tune">
   <!-- Zone A: The Cockpit — above the fold, zero scroll -->
@@ -130,8 +148,8 @@
       bind:value={display.cpuLevel}
       bind:dynamic={display.cpuDynamic}
       max={5}
-      color="#22d98e"
-      onchange={(v, d) => adb.setCpuLevel(v, d)}
+      color="var(--accent-seafoam)"
+      onchange={(v, d) => applySetting(() => adb.setCpuLevel(v, d))}
     />
     <div class="divider"></div>
     <LevelPicker
@@ -139,8 +157,8 @@
       bind:value={display.gpuLevel}
       bind:dynamic={display.gpuDynamic}
       max={5}
-      color="#f97066"
-      onchange={(v, d) => adb.setGpuLevel(v, d)}
+      color="var(--accent-grape)"
+      onchange={(v, d) => applySetting(() => adb.setGpuLevel(v, d))}
     />
     <div class="divider"></div>
     <LevelPicker
@@ -148,8 +166,8 @@
       bind:value={display.ffrLevel}
       bind:dynamic={display.ffrDynamic}
       max={4}
-      color="#a78bfa"
-      onchange={(v, d) => adb.setFfrLevel(v, d)}
+      color="var(--accent-teal)"
+      onchange={(v, d) => applySetting(() => adb.setFfrLevel(v, d))}
     />
   </Card>
 
@@ -157,7 +175,7 @@
     <FrequencyPicker
       bind:value={display.refreshRate}
       options={[60, 72, 90, 120]}
-      onchange={(hz) => adb.setRefreshRate(hz)}
+      onchange={(hz) => applySetting(() => adb.setRefreshRate(hz))}
     />
   </Card>
 
@@ -293,23 +311,6 @@
     margin: 4px 0;
   }
 
-  /* Header status chips */
-  :global(.header-status) .status-chip {
-    color: var(--success);
-  }
-
-  :global(.header-status) .status-chip.low {
-    color: var(--danger);
-  }
-
-  :global(.header-status) .status-chip.charging {
-    color: var(--warning);
-  }
-
-  :global(.header-status) .status-wifi {
-    color: var(--text-muted);
-  }
-
   /* Resolution */
   .res-display {
     display: flex;
@@ -377,7 +378,7 @@
   .res-preset-btn.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 3px 0 0 var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
   }
 
   .res-preset-label {
@@ -431,7 +432,7 @@
   .ptab.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .empty {

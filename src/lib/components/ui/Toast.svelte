@@ -29,22 +29,24 @@
 
   .toast {
     padding: 12px 16px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-pill);
     font-size: 14px;
     font-weight: 500;
     text-align: center;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     animation: slideIn 0.2s var(--ease-out);
   }
 
   .toast-success {
-    background: rgba(34, 217, 142, 0.15);
-    border: 1px solid rgba(34, 217, 142, 0.3);
-    color: var(--primary);
+    background: rgba(49, 162, 76, 0.15);
+    border: 1px solid rgba(49, 162, 76, 0.3);
+    color: var(--success);
   }
 
   .toast-error {
-    background: rgba(239, 68, 68, 0.15);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(250, 56, 62, 0.15);
+    border: 1px solid rgba(250, 56, 62, 0.3);
     color: var(--danger);
   }
 

@@ -34,6 +34,8 @@
     right: 0;
     height: var(--tab-height);
     background: var(--surface);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
     border-top: 1px solid var(--border);
     display: flex;
     z-index: 100;
@@ -85,6 +87,6 @@
     height: 2px;
     background: var(--primary);
     border-radius: 0 0 2px 2px;
-    box-shadow: 0 0 8px rgba(34, 217, 142, 0.4);
+    box-shadow: 0 0 8px rgba(91, 158, 244, 0.3);
   }
 </style>

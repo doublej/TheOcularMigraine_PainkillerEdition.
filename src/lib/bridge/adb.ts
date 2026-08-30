@@ -1,18 +1,38 @@
 /**
  * ADB bridge abstraction.
- * On Android (Capacitor): executes shell commands directly via Runtime.exec().
- * On web (dev): returns mock responses.
- *
- * Key insight: when running ON the Quest, most commands (setprop, getprop, pm,
- * am, monkey) are standard Android shell commands — no ADB binary needed.
- * Only `adb install` truly requires the ADB binary.
+ * - Native (on Quest via Capacitor): Runtime.exec() directly
+ * - Desktop (browser + local server): proxies to `adb shell` on host
+ * - Mock (browser, no server): returns fake responses for dev
  */
 
 import { Capacitor } from '@capacitor/core'
 import { ShellExec } from '../plugins/shell-exec'
 import type { RecordingSettings } from '../stores/device.svelte'
 
-const isNative = Capacitor.isNativePlatform()
+export type Mode = 'native' | 'desktop' | 'mock'
+let mode: Mode = 'mock'
+let connected = true
+
+const modeReady: Promise<void> = Capacitor.isNativePlatform()
+  ? (mode = 'native', Promise.resolve())
+  : fetch('/api/ping', { signal: AbortSignal.timeout(800) })
+      .then(r => { if (r.ok) mode = 'desktop' })
+      .catch(() => {})
+
+export function getConnectionMode(): Mode { return mode }
+export function isServerConnected(): boolean { return mode !== 'desktop' || connected }
+
+export async function reconnect(): Promise<void> {
+  if (Capacitor.isNativePlatform()) return
+  try {
+    const res = await fetch('/api/ping', { signal: AbortSignal.timeout(800) })
+    if (res.ok) { mode = 'desktop'; connected = true }
+    else { mode = 'mock'; connected = false }
+  } catch {
+    mode = 'mock'
+    connected = false
+  }
+}
 
 const mockResponses: Record<string, string> = {
   'getprop ro.product.model': 'Quest 3',
@@ -42,13 +62,38 @@ function getMockResponse(command: string): string {
   return ''
 }
 
+async function desktopShell(command: string): Promise<string> {
+  const res = await fetch('/api/shell', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  })
+  const data = await res.json()
+  if (data.exitCode !== 0 && data.error) {
+    throw new Error(`${command}: ${data.error}`)
+  }
+  return data.output ?? ''
+}
+
 export async function shell(command: string): Promise<string> {
-  if (isNative) {
+  await modeReady
+  if (mode === 'native') {
     const result = await ShellExec.exec({ command })
     if (result.exitCode !== 0 && result.error) {
-      console.warn(`[shell] ${command} failed:`, result.error)
+      throw new Error(`${command}: ${result.error}`)
     }
     return result.output
+  }
+  if (mode === 'desktop') {
+    try {
+      return await desktopShell(command)
+    } catch (e) {
+      if (e instanceof TypeError) {
+        connected = false
+        return getMockResponse(command)
+      }
+      throw e
+    }
   }
   console.log(`[mock] ${command}`)
   return getMockResponse(command)
@@ -94,7 +139,16 @@ export async function clearAllSettings(): Promise<void> {
 }
 
 export async function installApk(path: string): Promise<string> {
-  // Uses pm install on-device (no ADB binary needed)
+  await modeReady
+  if (mode === 'desktop') {
+    const res = await fetch('/api/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+    const data = await res.json()
+    return data.output || data.error || ''
+  }
   return shell(`pm install -r "${path}"`)
 }
 

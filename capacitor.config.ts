@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.ocularmigraine.mcp',
-  appName: 'Ocular Migraine MCP',
+  appName: 'The Ocular Migraine',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

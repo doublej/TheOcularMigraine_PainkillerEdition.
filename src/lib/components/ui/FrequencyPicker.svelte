@@ -78,7 +78,7 @@
   .freq-btn.active {
     background: var(--primary-glow);
     color: var(--primary);
-    box-shadow: inset 0 -2px 0 var(--primary);
+    box-shadow: 0 0 12px var(--primary-glow);
   }
 
   .hz {

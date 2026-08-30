@@ -123,6 +123,8 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -253,7 +255,7 @@
     width: 100%;
     height: 44px;
     background: var(--primary);
-    color: #080a10;
+    color: var(--bg);
     border: none;
     border-radius: var(--radius);
     font-size: 14px;

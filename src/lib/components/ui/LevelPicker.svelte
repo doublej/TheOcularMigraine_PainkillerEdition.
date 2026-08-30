@@ -105,7 +105,7 @@
   .level-btn.active {
     background: color-mix(in srgb, var(--active-color) 18%, transparent);
     color: var(--active-color);
-    box-shadow: inset 0 -2px 0 var(--active-color);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--active-color) 20%, transparent);
   }
 
   .dynamic-toggle {

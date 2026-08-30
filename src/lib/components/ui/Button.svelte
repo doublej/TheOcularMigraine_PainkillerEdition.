@@ -62,7 +62,7 @@
   .primary {
     background: var(--primary);
     border-color: var(--primary);
-    color: #080a10;
+    color: var(--bg);
     font-weight: 600;
   }
   .primary:hover { background: var(--primary-dim); border-color: var(--primary-dim); }
@@ -72,7 +72,7 @@
     border-color: var(--danger-dim);
     color: var(--danger);
   }
-  .danger:hover { background: rgba(239, 68, 68, 0.08); }
+  .danger:hover { background: rgba(250, 56, 62, 0.08); }
 
   .ghost {
     background: transparent;

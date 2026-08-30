@@ -37,8 +37,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
-    padding: 12px 0;
+    gap: 10px;
+    padding: 6px 0;
     cursor: pointer;
   }
 
@@ -71,7 +71,7 @@
     height: 28px;
     background: var(--border);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     flex-shrink: 0;
     transition: all var(--duration) var(--ease-out);
@@ -80,7 +80,7 @@
   .toggle-switch.on {
     background: var(--primary);
     border-color: var(--primary);
-    box-shadow: 0 0 12px rgba(34, 217, 142, 0.25);
+    box-shadow: var(--glow-primary);
   }
 
   .toggle-thumb {
@@ -90,12 +90,12 @@
     width: 20px;
     height: 20px;
     background: var(--text);
-    border-radius: 4px;
+    border-radius: 50%;
     transition: transform var(--duration) var(--ease-spring);
   }
 
   .toggle-switch.on .toggle-thumb {
     transform: translateX(24px);
-    background: #080a10;
+    background: var(--bg);
   }
 </style>
