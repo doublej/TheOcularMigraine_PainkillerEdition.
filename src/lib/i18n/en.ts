@@ -26,14 +26,7 @@ export const en = {
   'setup.back': 'Back',
   'setup.next': 'Next',
   'setup.done': 'Done',
-  'setup.step': 'Step {n} of 4',
-  'setup.nav.works': 'Works now',
-  'setup.nav.unlock': 'Unlock',
-  'setup.nav.check': 'Check',
-  'setup.nav.done': 'Done',
-
-  'setup.works.heading': 'What works now',
-  'setup.works.body': 'Most of the app works with no setup at all. The performance and recording settings are the exception, and unlocking them is the next step.',
+  'setup.step': 'Step {n} of 2',
 
   'setup.unlock.heading': 'Unlock the settings',
   'setup.unlock.body': 'This makes the performance and recording settings work. There is no way to do it without a computer.',
@@ -45,7 +38,6 @@ export const en = {
   'setup.unlock.working': 'Asking the headset…',
   'setup.unlock.caveat': 'While port 5555 is open, other devices on your network can reach this headset the same way. Nothing gets in without an approval like the one you gave. To close the port, run adb usb on the computer, or restart the headset.',
   'setup.unlock.reboot': 'From now on the app reconnects on its own, with nothing to tap. Only a restart undoes this, and a Quest rarely restarts, it usually just sleeps. After one, the app will say so, and step 2 needs doing again.',
-  'setup.unlock.patch': 'This headset’s security patch is older than 2026-05-01, which is the fix for a known adb flaw. Update it before leaving the port open.',
 
   // One line per state the channel can actually detect. Nothing here is a guess.
   'setup.state.DEV_MODE_OFF': 'USB debugging is off on this headset. Turn on Developer Mode in the Meta Horizon app on your phone, then try again.',
@@ -56,12 +48,8 @@ export const en = {
   'setup.state.CONNECTED': 'Unlocked. Every setting works until the headset restarts.',
   'setup.state.DROPPED': 'The connection closed. Settings are locked again. Tap Unlock to reconnect.',
   'setup.state.UNSUPPORTED': 'This headset cannot be unlocked this way. The settings that need it stay switched off. Everything else keeps working.',
-
-  'setup.check.heading': 'Check',
-  'setup.check.body': 'This changes one harmless setting and reads it back, to confirm the unlock works.',
   'setup.check.again': 'Check again',
   'setup.check.checking': 'Asking the headset…',
-  'setup.check.skip': 'You can skip this. It only tells you what to expect.',
 
   'setup.done.heading': 'That’s it',
   'setup.done.body': 'The bar at the bottom of every screen shows the connection. Tap it to come back here any time. Settings the headset does not allow are greyed out.',
@@ -410,4 +398,6 @@ export const en = {
   'adb.noValue': 'no value',
   'conn.headset.unlocked': 'Unlocked. Tap for setup.',
   'tune.device.readHint': 'Replaces everything on this screen with what the headset has set right now.',
+  'setup.done.allWorks': 'Everything works. Nothing else to set up.',
+  'setup.done.someOff': 'Still switched off:',
 } as const

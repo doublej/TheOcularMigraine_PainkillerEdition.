@@ -73,7 +73,7 @@
    */
   function handleTap() {
     if (mode === 'desktop') void handleReconnect()
-    else if (mode === 'native') openSetup(2)
+    else if (mode === 'native') openSetup(1)
     else openSetup(1)
   }
 </script>

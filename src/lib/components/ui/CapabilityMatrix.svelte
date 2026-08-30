@@ -2,7 +2,14 @@
   import { abilityLabel, whyNot, abilitiesFor, type AbilityKey, type Privilege } from '../../bridge/capabilities'
   import { t } from '../../i18n/index.svelte'
 
-  let { privilege }: { privilege: Privilege } = $props()
+  let {
+    privilege,
+    /**
+     * Show only what does NOT work. Seven green ticks tell a user nothing they need — the rows
+     * worth reading are the ones with a reason attached.
+     */
+    blockedOnly = false,
+  }: { privilege: Privilege; blockedOnly?: boolean } = $props()
 
   // Ordered so the things a fresh headset install can already do come first.
   const KEYS: AbilityKey[] = [
@@ -11,10 +18,11 @@
   ]
 
   const can = $derived(abilitiesFor(privilege))
+  const rows = $derived(blockedOnly ? KEYS.filter(k => !can[k]) : KEYS)
 </script>
 
 <ul class="matrix">
-  {#each KEYS as key}
+  {#each rows as key}
     <li class="row" class:no={!can[key]}>
       <span class="mark" aria-hidden="true">{can[key] ? '✓' : '✕'}</span>
       <span class="body">
