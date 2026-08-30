@@ -258,7 +258,7 @@ export async function refreshDevice() {
   // Settled, not all: shell() throws on any nonzero exit, and one missing prop — `ip addr show
   // wlan0` on a headset with no wlan0 — must not discard the other five reads.
   const results = await Promise.allSettled([
-    adb.getprop('ro.product.model'),
+    adb.getModel(),
     adb.getBatteryInfo(),
     adb.getStorageInfo(),
     adb.getWifiInfo(),

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getConnectionMode, getServerConnected, refreshConnectionState } from '../../stores/device.svelte'
+  import { getConnectionMode, getServerConnected, getPrivilege, refreshConnectionState } from '../../stores/device.svelte'
+  import { openSetup } from '../../stores/navigation.svelte'
   import { reconnect } from '../../bridge/adb'
   import { showToast } from '../../stores/toast.svelte'
   import { t } from '../../i18n/index.svelte'
@@ -13,14 +14,25 @@
 
   let mode = $derived(getConnectionMode())
   let connected = $derived(getServerConnected())
+  let privilege = $derived(getPrivilege())
   let misses = $state(0)
-  /** Only a live desktop bridge reaches the headset — in mock mode every write is discarded. */
-  let healthy = $derived(mode === 'desktop' && connected && misses < MISS_LIMIT)
+  /**
+   * Health is a privilege question, not a transport one: a sideloaded build reaches the headset
+   * and still cannot change it. This bar used to render nothing at all on native, which is exactly
+   * why a sideloaded user was never told anything was wrong.
+   */
+  let healthy = $derived(
+    privilege === 'shell' && (mode !== 'desktop' || (connected && misses < MISS_LIMIT)),
+  )
+  /** Only a working on-headset route has nothing to report. */
+  let silent = $derived(mode === 'native' && healthy)
   let reconnecting = $state(false)
 
   onMount(() => {
     // adb knows it is native synchronously, but the store starts at 'mock' until something asks it.
     refreshConnectionState()
+    // On the headset there is no bridge to poll. The privilege probe is what changes this bar,
+    // and it reports through the same listener a dropped bridge already uses.
     if (mode === 'native') return
     // adb settles its mode from an async ping, so the store's first read can still say 'mock' on a live bridge,
     // and the bridge can be started after the app is open — so keep probing instead of stranding the session.
@@ -49,16 +61,27 @@
     if (healthy) showToast(t('conn.toast.ok'), 'success')
     else showToast(t('conn.toast.down'), 'error')
   }
+
+  /**
+   * On the headset the fix is never a retry — the port has to be opened from a computer first — so
+   * the tap opens the wizard at the step that explains it. The bridge is a developer route and is
+   * the only place a bare retry means anything.
+   */
+  function handleTap() {
+    if (mode === 'desktop') void handleReconnect()
+    else if (mode === 'native') openSetup(2)
+    else openSetup(1)
+  }
 </script>
 
-{#if mode !== 'native'}
+{#if !silent}
   <button
     class="indicator"
     class:healthy
     class:offline={!healthy && mode === 'desktop'}
     class:demo={!healthy && mode !== 'desktop'}
     disabled={reconnecting || healthy}
-    onclick={handleReconnect}
+    onclick={handleTap}
     bind:offsetHeight={height}
   >
     <span class="dot"></span>
@@ -68,8 +91,10 @@
       {t('conn.computer.ok')}
     {:else if mode === 'desktop'}
       {t('conn.computer.down')}
+    {:else if mode === 'native'}
+      {privilege === 'none' ? t('conn.headset.dropped') : t('conn.headset.locked')}
     {:else}
-      {t('conn.demo')}
+      {t('conn.offline')}
     {/if}
   </button>
 {/if}

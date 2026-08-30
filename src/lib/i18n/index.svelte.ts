@@ -27,6 +27,13 @@ type Slots<S extends string> = S extends `${string}{${infer Name}}${infer Rest}`
 
 type Values<K extends Key> = Record<Slots<Messages[K]>, string | number>
 
+/**
+ * The keys that take no placeholder. A lookup table of keys must be typed with this rather than
+ * `Key`, because a union that mixes plain and interpolated keys makes `t()` demand the values
+ * argument for every member of it.
+ */
+export type PlainKey = { [K in Key]: [Slots<Messages[K]>] extends [never] ? K : never }[Key]
+
 let locale = $state<Locale>('en')
 
 export function getLocale(): Locale {

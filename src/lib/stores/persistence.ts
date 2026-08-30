@@ -42,6 +42,7 @@ const KEYS = {
   DISPLAY: 'tom_display_settings',
   DISPLAY_UNSET: 'tom_display_unset',
   RECORDING: 'tom_recording_settings',
+  SETUP_SEEN: 'tom_setup_seen',
 } as const
 
 function load<T>(key: string, fallback: T): T {
@@ -131,6 +132,14 @@ export const saveDisplaySettings = (s: DisplaySettings) => save(KEYS.DISPLAY, s)
  */
 export const loadUnsetDisplayKeys = () => load<string[] | null>(KEYS.DISPLAY_UNSET, null)
 export const saveUnsetDisplayKeys = (keys: string[]) => save(KEYS.DISPLAY_UNSET, keys)
+
+/**
+ * Whether the setup wizard has ever been dismissed. Only this flag is stored — never the
+ * capability it verified, because `adb tcpip` does not survive a reboot and a saved 'shell'
+ * would be a confident lie on the next launch.
+ */
+export const getSetupSeen = () => load<boolean>(KEYS.SETUP_SEEN, false)
+export const setSetupSeen = (seen: boolean) => save(KEYS.SETUP_SEEN, seen)
 
 export const loadRecordingSettings = () => load<RecordingSettings | null>(KEYS.RECORDING, null)
 export const saveRecordingSettings = (s: RecordingSettings) => save(KEYS.RECORDING, s)

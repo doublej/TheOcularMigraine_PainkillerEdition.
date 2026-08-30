@@ -3,13 +3,25 @@
   import TabBar from './lib/components/layout/TabBar.svelte'
   import Toast from './lib/components/ui/Toast.svelte'
   import ConnectionIndicator from './lib/components/ui/ConnectionIndicator.svelte'
-  import { getActiveTab } from './lib/stores/navigation.svelte'
-  import { getDevice } from './lib/stores/device.svelte'
+  import SetupWizard from './lib/components/setup/SetupWizard.svelte'
+  import { getActiveTab, openSetup } from './lib/stores/navigation.svelte'
+  import { getDevice, refreshConnectionState } from './lib/stores/device.svelte'
+  import { probePrivilege } from './lib/bridge/adb'
+  import { getSetupSeen } from './lib/stores/persistence'
   import Tune from './views/Tune.svelte'
   import Recording from './views/Recording.svelte'
   import System from './views/System.svelte'
 
   const device = $derived(getDevice())
+
+  // First run opens the wizard only once the probe has settled: the mode comes from an async
+  // 800ms ping, so opening at t=0 would teach the user a lie about their own route.
+  if (!getSetupSeen()) {
+    void probePrivilege().then(() => {
+      refreshConnectionState()
+      openSetup()
+    })
+  }
   let contentEl: HTMLElement | undefined = $state()
 
   // The offline bar is fixed over this container and wraps to two lines on a narrow phone, so the
@@ -38,6 +50,8 @@
 
 <Toast />
 <ConnectionIndicator bind:height={bridgeBarHeight} />
+<!-- Beside Toast, not inside a view: html, body and #app are all overflow:hidden. -->
+<SetupWizard />
 
 <div class="app">
   <Header title="Ocular Migraine">

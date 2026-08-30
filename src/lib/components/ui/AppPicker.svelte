@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import * as adb from '../../bridge/adb'
+  import type { NativeApp } from '../../plugins/shell-exec'
+  import { focusTrap } from '../../actions/focusTrap'
 
   let {
     open = $bindable(false),
@@ -20,7 +22,7 @@
     selected?: string[]
   } = $props()
 
-  let packages = $state<string[]>([])
+  let packages = $state<NativeApp[]>([])
   let loading = $state(false)
   let loadError = $state('')
   let filter = $state('')
@@ -28,8 +30,11 @@
   let snapshot: string[] = []
 
   const query = $derived(normalizeSearch(filter))
+  // Both halves are searched: someone typing "beat saber" and someone typing the id both find it.
   const filtered = $derived(
-    query ? packages.filter(p => normalizeSearch(p).includes(query)) : packages,
+    query
+      ? packages.filter(a => normalizeSearch(a.label + a.packageName).includes(query))
+      : packages,
   )
 
   /** Ids carry no spaces or dots to type: 'beat saber' should still find com.beatgames.beatsaber. */
@@ -37,17 +42,13 @@
     return value.toLowerCase().replace(/[^a-z0-9]/g, '')
   }
 
-  /** adb exposes no app label, so the last id segment is the closest thing to a name we can show. */
-  function formatAppName(pkg: string): string {
-    const last = pkg.split('.').pop() || pkg
-    return last.charAt(0).toUpperCase() + last.slice(1)
-  }
-
   async function load() {
     loading = true
     loadError = ''
     try {
-      packages = await adb.getInstalledPackages()
+      // PackageManager on the headset gives the real label and icon; off it there is only the id,
+      // and getInstalledApps() falls the label back to that rather than inventing a prettier one.
+      packages = await adb.getInstalledApps()
       // The mock table answers this read with six invented ids. Listing them as installed is how a
       // dead bridge builds an allow list against apps no headset has — a fixture is not a library.
       if (adb.isFixtureRead()) {
@@ -102,7 +103,15 @@
   <div class="overlay" onclick={close} role="presentation">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_interactive_supports_focus -->
-    <div class="modal" role="dialog" aria-label={title} onclick={(e) => e.stopPropagation()}>
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      tabindex="-1"
+      use:focusTrap={close}
+      onclick={(e) => e.stopPropagation()}
+    >
       <div class="modal-header">
         <h3>{title}</h3>
         <button
@@ -136,18 +145,21 @@
         {:else if filtered.length === 0}
           <p class="status">No apps matched "{filter}"</p>
         {:else}
-          {#each filtered as pkg}
+          {#each filtered as app (app.packageName)}
             <button
               class="pkg-item"
-              class:selected={multiple ? selected.includes(pkg) : pkg === current}
-              onclick={() => selectPkg(pkg)}
+              class:selected={multiple ? selected.includes(app.packageName) : app.packageName === current}
+              onclick={() => selectPkg(app.packageName)}
             >
               {#if multiple}
-                <span class="checkbox" class:checked={selected.includes(pkg)}></span>
+                <span class="checkbox" class:checked={selected.includes(app.packageName)}></span>
+              {/if}
+              {#if app.icon}
+                <img class="app-icon" src={app.icon} alt="" width="28" height="28" />
               {/if}
               <span class="pkg-text">
-                <span class="app-name">{formatAppName(pkg)}</span>
-                <span class="pkg-id">{pkg}</span>
+                <span class="app-name">{app.label}</span>
+                <span class="pkg-id">{app.packageName}</span>
               </span>
             </button>
           {/each}
@@ -220,6 +232,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .app-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    flex-shrink: 0;
   }
 
   .close-btn.text {

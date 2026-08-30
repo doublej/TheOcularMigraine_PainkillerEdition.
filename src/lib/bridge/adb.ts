@@ -6,7 +6,10 @@
  */
 
 import { Capacitor } from '@capacitor/core'
-import { ShellExec } from '../plugins/shell-exec'
+import {
+  Apps, DeviceInfo, ShellExec,
+  type Elevation, type NativeApp,
+} from '../plugins/shell-exec'
 import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
 import { t } from '../i18n/index.svelte'
@@ -42,6 +45,47 @@ export function isServerConnected(): boolean { return mode !== 'desktop' || conn
 
 /** What this route can run as right now. Never persisted: `adb tcpip` does not survive a reboot. */
 export function getPrivilege(): Privilege { return privilege }
+
+// --- Elevation (the privileged channel on the headset) ---
+
+/** Off the headset there is no channel, and saying so is more honest than an invented state. */
+const NO_CHANNEL: Elevation = { state: 'UNSUPPORTED', detail: 'Only the headset build can be unlocked' }
+
+export async function getElevation(): Promise<Elevation> {
+  await modeReady
+  if (mode !== 'native') return NO_CHANNEL
+  return ShellExec.elevationState()
+}
+
+/**
+ * Asks adbd on this same headset for a shell. Returns where it got to rather than throwing, because
+ * "nothing is listening", "the prompt is showing" and "nobody answered" each need their own
+ * sentence. A promotion is never taken on the connection alone — the capability probe has to pass.
+ */
+export async function elevate(): Promise<Elevation> {
+  await modeReady
+  if (mode !== 'native') return NO_CHANNEL
+  const result = await ShellExec.elevate()
+  if (result.state === 'CONNECTED') await probePrivilege(true)
+  return result
+}
+
+export async function endElevation(): Promise<Elevation> {
+  await modeReady
+  if (mode !== 'native') return NO_CHANNEL
+  const result = await ShellExec.disconnect()
+  await probePrivilege(true)
+  return result
+}
+
+// A dropped connection is the dangerous state: every gated control has to go back to disabled the
+// moment it happens, not the next time a command fails.
+if (Capacitor.isNativePlatform()) {
+  void ShellExec.addListener('elevationChange', payload => {
+    if (payload.state === 'CONNECTED') void probePrivilege(true)
+    else if (privilege === 'shell') { invalidatePrivilege(); setPrivilege('app') }
+  })
+}
 
 /**
  * True while every read is answered from the fixture table below instead of a headset.
@@ -274,8 +318,17 @@ export async function clearAllSettings(): Promise<void> {
   }
 }
 
+/**
+ * On the headset this hands the file to the system installer, which asks the user to confirm — an
+ * app can never install silently, so the prompt is the mechanism, not a shortfall. Over the bridge
+ * it is still a real `adb install`, which is why the two return different sentences.
+ */
 export async function installApk(path: string): Promise<string> {
   await modeReady
+  if (mode === 'native') {
+    await Apps.install({ path })
+    return 'Handed to the headset’s installer — confirm it there to finish'
+  }
   if (mode === 'desktop') {
     const data = await postBridge('/api/install', { path })
     if (data.exitCode !== 0) throw new Error(describeFailure('install', data))
@@ -285,6 +338,12 @@ export async function installApk(path: string): Promise<string> {
 }
 
 export async function launchApp(packageName: string): Promise<void> {
+  await modeReady
+  // `monkey` is refused to an app uid; starting the launch Intent is not.
+  if (mode === 'native') {
+    await Apps.launch({ packageName })
+    return
+  }
   await shell(`monkey -p ${packageName} 1`)
 }
 
@@ -297,8 +356,27 @@ export async function reboot(): Promise<void> {
 }
 
 export async function getInstalledPackages(): Promise<string[]> {
+  await modeReady
+  if (mode === 'native') return (await Apps.list({ icons: false })).apps.map(a => a.packageName)
   const output = await shell('pm list packages -3')
   return output.split('\n').filter(Boolean).map(l => l.replace('package:', ''))
+}
+
+/**
+ * The same list with the real label and icon, which only PackageManager can give — `pm list
+ * packages -3` returns bare ids, which is why the picker used to guess a name from the last
+ * segment. Off the headset there is nothing but the id, so label falls back to it and the caller
+ * renders exactly what it has.
+ */
+export async function getInstalledApps(): Promise<NativeApp[]> {
+  await modeReady
+  if (mode === 'native') return (await Apps.list()).apps
+  return (await getInstalledPackages()).map(packageName => ({
+    packageName,
+    label: packageName,
+    versionName: '',
+    enabled: true,
+  }))
 }
 
 export async function startRecording(): Promise<void> {
@@ -311,7 +389,36 @@ export async function stopRecording(): Promise<void> {
 
 // --- Device info queries ---
 
+// --- Device info queries ---
+//
+// `dumpsys battery` and `dumpsys wifi` are refused outright to an app uid on a Quest 3 ("Can't find
+// service"), so on a headset install every one of these read blank. The framework calls behind
+// DeviceInfo need no privilege and no setup, so on the headset they are the primary path and the
+// shell parsing below is only ever reached through the desktop bridge or the mock table.
+
+/** KB in, human out — kept in KB because `df` reports 1K blocks. */
+function formatKb(kb: number): string {
+  return kb > 1048576 ? `${(kb / 1048576).toFixed(1)} GB` : `${(kb / 1024).toFixed(0)} MB`
+}
+
+/**
+ * One native call per refresh, not five. refreshDevice() asks for model, battery, storage, address
+ * and firmware at once, and every one of them is a field of the same struct; sharing the in-flight
+ * promise collapses them without caching anything across refreshes.
+ */
+let deviceInfoInFlight: Promise<Awaited<ReturnType<typeof DeviceInfo.info>>> | null = null
+
+function readDeviceInfo() {
+  deviceInfoInFlight ??= DeviceInfo.info().finally(() => { deviceInfoInFlight = null })
+  return deviceInfoInFlight
+}
+
 export async function getBatteryInfo(): Promise<{ level: number; charging: boolean }> {
+  await modeReady
+  if (mode === 'native') {
+    const info = await readDeviceInfo()
+    return { level: info.batteryLevel, charging: info.charging }
+  }
   const raw = await shell('dumpsys battery')
   const level = parseInt(raw.match(/level:\s*(\d+)/)?.[1] ?? '0')
   const status = parseInt(raw.match(/status:\s*(\d+)/)?.[1] ?? '0')
@@ -319,27 +426,51 @@ export async function getBatteryInfo(): Promise<{ level: number; charging: boole
 }
 
 export async function getStorageInfo(): Promise<{ free: string; total: string }> {
+  await modeReady
+  if (mode === 'native') {
+    const info = await readDeviceInfo()
+    return { free: formatKb(info.freeBytes / 1024), total: formatKb(info.totalBytes / 1024) }
+  }
   const raw = await shell('df /storage/emulated/0')
   const parts = raw.split('\n')[1]?.trim().split(/\s+/)
   if (!parts || parts.length < 4) return { free: '?', total: '?' }
-  const totalKb = parseInt(parts[1])
-  const availKb = parseInt(parts[3])
-  const fmt = (kb: number) => kb > 1048576 ? `${(kb / 1048576).toFixed(1)} GB` : `${(kb / 1024).toFixed(0)} MB`
-  return { free: fmt(availKb), total: fmt(totalKb) }
+  return { free: formatKb(parseInt(parts[3])), total: formatKb(parseInt(parts[1])) }
 }
 
-export async function getWifiInfo(): Promise<{ ssid: string; ip: string; signal: number }> {
+export interface WifiRead {
+  ssid: string
+  ip: string
+  signal: number
+  /** True when Android withheld the network name because the location permission is not granted. */
+  ssidHidden: boolean
+}
+
+export async function getWifiInfo(): Promise<WifiRead> {
+  await modeReady
+  if (mode === 'native') {
+    // Split on purpose: the address comes back regardless, the name needs a runtime permission.
+    const [info, wifi] = await Promise.all([readDeviceInfo(), DeviceInfo.wifi()])
+    return { ssid: wifi.ssid, ip: info.ip, signal: wifi.signal, ssidHidden: wifi.ssidHidden }
+  }
   const wifiRaw = await shell('dumpsys wifi')
   const ssid = wifiRaw.match(/SSID:\s*"?([^",]+)"?/)?.[1] ?? ''
   const signal = parseInt(wifiRaw.match(/RSSI:\s*(-?\d+)/)?.[1] ?? '0')
   // A headset with no wlan0 interface still has an SSID worth reporting, so this read fails alone.
   const ipRaw = await shell('ip addr show wlan0').catch(() => '')
   const ip = ipRaw.match(/inet\s+([\d.]+)/)?.[1] ?? ''
-  return { ssid, ip, signal }
+  return { ssid, ip, signal, ssidHidden: false }
 }
 
 export async function getFirmwareVersion(): Promise<string> {
+  await modeReady
+  if (mode === 'native') return (await readDeviceInfo()).firmware
   return getprop('ro.build.display.id')
+}
+
+export async function getModel(): Promise<string> {
+  await modeReady
+  if (mode === 'native') return (await readDeviceInfo()).model
+  return getprop('ro.product.model')
 }
 
 export interface DisplayReadback {
@@ -428,7 +559,7 @@ export async function enablePackage(pkg: string): Promise<string> {
 
 // --- System actions ---
 
-// Filtered here rather than piped through grep: on the desktop bridge the pipe would run on the host, not the headset.
+// Filtered in JS rather than by piping through grep, so the parse is the same on all three routes.
 export async function getCurrentOculusProps(): Promise<Record<string, string>> {
   const raw = await shell('getprop')
   const props: Record<string, string> = {}
@@ -442,6 +573,11 @@ export async function getCurrentOculusProps(): Promise<Record<string, string>> {
 }
 
 export async function openAndroidSettings(): Promise<void> {
+  await modeReady
+  if (mode === 'native') {
+    await Apps.openSettings()
+    return
+  }
   await shell('am start -a android.settings.SETTINGS')
 }
 
@@ -454,5 +590,12 @@ export async function toggleScreen(): Promise<void> {
 }
 
 export async function killBackground(): Promise<void> {
+  await modeReady
+  // killBackgroundProcesses only ever touches one package and ignores anything in the foreground,
+  // so the native path sweeps the third-party list rather than claiming an `am kill-all`.
+  if (mode === 'native') {
+    await Apps.killBackground()
+    return
+  }
   await shell('am kill-all')
 }
