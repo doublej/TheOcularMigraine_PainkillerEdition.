@@ -7,21 +7,40 @@
 
 import { Capacitor } from '@capacitor/core'
 import { ShellExec } from '../plugins/shell-exec'
+import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
 
-export type Mode = 'native' | 'desktop' | 'mock'
+// Re-exported so every existing `import type { Mode } from '../bridge/adb'` keeps working, and so
+// the two axes stay in one file with no import cycle back into the bridge.
+export type { Mode, Privilege } from './capabilities'
+
 let mode: Mode = 'mock'
 let connected = true
 let notifyConnectionChange: (() => void) | null = null
 
+/**
+ * What commands run as, which is not what `mode` says. These are the defaults before anything is
+ * probed, and each one is already known to be right: mock discards writes, the desktop bridge
+ * really does run `adb shell`, and a sideloaded app really does run as itself. Only native can be
+ * promoted, and only on evidence — see probePrivilege().
+ */
+function defaultPrivilegeFor(m: Mode): Privilege {
+  return m === 'desktop' ? 'shell' : m === 'native' ? 'app' : 'none'
+}
+
+let privilege: Privilege = 'none'
+
 const modeReady: Promise<void> = Capacitor.isNativePlatform()
-  ? (mode = 'native', Promise.resolve())
+  ? (mode = 'native', privilege = 'app', Promise.resolve())
   : fetch('/api/ping', { signal: AbortSignal.timeout(800) })
-      .then(r => { if (r.ok) mode = 'desktop' })
+      .then(r => { if (r.ok) { mode = 'desktop'; setPrivilege('shell') } })
       .catch(() => {})
 
 export function getConnectionMode(): Mode { return mode }
 export function isServerConnected(): boolean { return mode !== 'desktop' || connected }
+
+/** What this route can run as right now. Never persisted: `adb tcpip` does not survive a reboot. */
+export function getPrivilege(): Privilege { return privilege }
 
 /**
  * True while every read is answered from the fixture table below instead of a headset.
@@ -45,15 +64,77 @@ function setConnected(next: boolean): void {
   notifyConnectionChange?.()
 }
 
+// Mirrors setConnected: the notify is the whole reactivity story, so every gated control in the
+// app disables or re-enables itself without any view knowing a probe happened.
+function setPrivilege(next: Privilege): void {
+  if (privilege === next) return
+  privilege = next
+  notifyConnectionChange?.()
+}
+
+/** Scratch key the probe writes. Filtered out of getCurrentOculusProps() so it reaches no backup or tally. */
+const PROBE_PROP_PREFIX = 'debug.oculus.tomProbe'
+
+let probed = false
+let probeInFlight: Promise<Privilege> | null = null
+
+/** Forget the probe result, so the next probePrivilege() asks the headset again. */
+export function invalidatePrivilege(): void {
+  probed = false
+}
+
+/**
+ * Asks the headset whether this route may write a render prop, by writing one and reading it back.
+ *
+ * /system/etc/selinux/plat_property_contexts maps `debug.` as a single prefix rule with no more
+ * specific `debug.oculus.` rule, so a scratch `debug.oculus.<nonce>` exercises exactly the same
+ * permission as debug.oculus.cpuLevel. Android 10+ does allow `exact` per-property entries, so if a
+ * build ever declares the render props individually the scratch key falls back to the broader rule
+ * and the probe can read as a false positive — never a false negative. A failing probe therefore
+ * gates hard, and a passing one is confirmed by the first real write via the guard in setprop().
+ */
+export async function probePrivilege(force = false): Promise<Privilege> {
+  if (force) invalidatePrivilege()
+  probeInFlight ??= runProbe().finally(() => { probeInFlight = null })
+  return probeInFlight
+}
+
+async function runProbe(): Promise<Privilege> {
+  await modeReady
+  // Only native is in doubt. Mock discards everything and the bridge runs as the adb shell user.
+  if (mode !== 'native') {
+    probed = true
+    setPrivilege(mode === 'desktop' && !connected ? 'none' : defaultPrivilegeFor(mode))
+    return privilege
+  }
+  if (probed) return privilege
+
+  const key = `${PROBE_PROP_PREFIX}.${Math.random().toString(36).slice(2, 8)}`
+  const nonce = Date.now().toString(36)
+  let mayWrite = false
+  try {
+    // setprop already reads back and throws on mismatch, so a refusal that still exits 0 is caught.
+    await setprop(key, nonce)
+    mayWrite = true
+    await setprop(key, '')
+  } catch {
+    // Refused, or written and unreadable. Either way it is not a working write.
+  }
+  probed = true
+  setPrivilege(mayWrite ? 'shell' : 'app')
+  return privilege
+}
+
 export async function reconnect(): Promise<void> {
   if (Capacitor.isNativePlatform()) return
   try {
     const res = await fetch('/api/ping', { signal: AbortSignal.timeout(800) })
-    if (res.ok) { mode = 'desktop'; setConnected(true) }
-    else { mode = 'mock'; setConnected(false) }
+    if (res.ok) { mode = 'desktop'; setConnected(true); setPrivilege('shell') }
+    else { mode = 'mock'; setConnected(false); setPrivilege('none') }
   } catch {
     mode = 'mock'
     setConnected(false)
+    setPrivilege('none')
   }
 }
 
@@ -148,6 +229,10 @@ export async function setprop(prop: string, value: string | number): Promise<voi
   if (mode === 'mock') return
   const readBack = await getprop(prop)
   if (readBack === wanted) return
+  // A sideloaded app runs as itself and Android refuses it these writes. Demoting here rather than
+  // in each view means one guard disables every gated control at once, through the same channel a
+  // dropped bridge already uses.
+  if (mode === 'native') setPrivilege('app')
   throw new Error(
     `${prop} did not take: the headset still reads ${readBack ? `'${readBack}'` : 'no value'}`,
   )
@@ -348,7 +433,9 @@ export async function getCurrentOculusProps(): Promise<Record<string, string>> {
   const props: Record<string, string> = {}
   for (const line of raw.split('\n')) {
     const match = line.match(/\[(debug\.oculus\.[^\]]+)\]:\s*\[([^\]]*)\]/)
-    if (match) props[match[1]] = match[2]
+    // The probe's scratch key is this app's, not the headset's: filtering it here keeps it out of
+    // Settings Backup, "show all tweaks", the erase tally and Recording's readback at once.
+    if (match && !match[1].startsWith(PROBE_PROP_PREFIX)) props[match[1]] = match[2]
   }
   return props
 }

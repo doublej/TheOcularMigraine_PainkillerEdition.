@@ -17,9 +17,10 @@
   import {
     getDevice, getDisplay, getCaps, getUnsetDisplayKeys, isDemoMode, updateDisplay,
     getProfiles, addProfile, removeProfile, refreshDevice,
-    isDeviceInfoFixture, getServerConnected,
+    isDeviceInfoFixture, getServerConnected, getAbilities, getPrivilege,
     type DisplaySettings, type GameProfile,
   } from '../lib/stores/device.svelte'
+  import { whyNot } from '../lib/bridge/capabilities'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
@@ -100,6 +101,14 @@
    * it runs, so a tap cannot toast a value the running action is about to blank.
    */
   const busy = $derived(refreshing || clearing || busyPreset !== '' || busyProfile !== '')
+
+  /**
+   * Everything on this screen writes a render prop, so a route that cannot write them must not
+   * offer a control that would fail on tap. Reading the headset stays available, so the Read
+   * button keeps using `busy` alone.
+   */
+  const can = $derived(getAbilities())
+  const locked = $derived(busy || !can.writeProps)
 
   function levelsOf(s: DisplaySettings) {
     const { cpuLevel, gpuLevel, ffrLevel, cpuDynamic, gpuDynamic, ffrDynamic, refreshRate } = s
@@ -377,6 +386,12 @@
     </Button>
   </div>
 
+  {#if !can.writeProps}
+    <p class="warn">
+      Nothing on this screen can change the headset right now. {whyNot('writeProps', getPrivilege())}
+    </p>
+  {/if}
+
   {#if device.model && !fixture && !caps.known}
     <p class="warn">
       This headset was not recognised ({device.model}) &mdash; the panel size and rate list below are
@@ -386,7 +401,7 @@
   {/if}
 
   <Card title="Performance">
-    <fieldset class="group" disabled={busy}>
+    <fieldset class="group" disabled={locked}>
     <div class="level-row">
       <div class="level-slot slot-cpu">
         <LevelPicker
@@ -461,7 +476,7 @@
   </Card>
 
   <Card title="Display">
-    <fieldset class="group" disabled={busy}>
+    <fieldset class="group" disabled={locked}>
       <FrequencyPicker
         label="Screen refresh rate"
         bind:value={pending.refreshRate}
@@ -492,7 +507,7 @@
       {/if}
     </div>
     <p class="hint">Per eye. Takes effect the next time a game launches.</p>
-    <fieldset class="group" disabled={busy}>
+    <fieldset class="group" disabled={locked}>
     <div class="res-grid">
       {#each steps as step}
         <button
@@ -544,13 +559,13 @@
                 <span class="row-busy">Applying…</span>
               {:else}
                 <Button
-                  disabled={busy}
+                  disabled={locked}
                   onclick={() => confirmTap(`apply:${profile.id}`, () => applyProfile(profile, false))}
                 >
                   {armed === `apply:${profile.id}` ? 'Tap again' : 'Apply'}
                 </Button>
                 <Button
-                  disabled={busy}
+                  disabled={locked}
                   onclick={() => confirmTap(`launch:${profile.id}`, () => applyProfile(profile, true))}
                 >
                   {armed === `launch:${profile.id}` ? 'Tap again to launch' : 'Apply & launch'}
@@ -596,7 +611,7 @@
               <button
                 class="preset-main"
                 class:armed={armed === `preset-apply:${preset.id}`}
-                disabled={busy}
+                disabled={locked}
                 onclick={() => confirmTap(`preset-apply:${preset.id}`, () => loadPreset(preset))}
               >
                 <span class="preset-name">
@@ -626,11 +641,11 @@
 
   <Card title="Reset">
     <div class="stack">
-      <Button disabled={busy} onclick={() => confirmTap('perf', clearPerformance)}>
+      <Button disabled={locked} onclick={() => confirmTap('perf', clearPerformance)}>
         {clearing ? 'Clearing…' : armed === 'perf' ? 'Tap again to clear' : 'Reset performance settings'}
       </Button>
       <p class="hint">Blanks this screen&rsquo;s nine props so the headset picks its own again.</p>
-      <Button variant="danger" disabled={busy} onclick={() => confirmTap('all', clearEverything)}>
+      <Button variant="danger" disabled={locked} onclick={() => confirmTap('all', clearEverything)}>
         {clearing ? 'Clearing…' : armed === 'all' ? 'Tap again to clear everything' : 'Clear all Oculus debug props'}
       </Button>
       <p class="hint">

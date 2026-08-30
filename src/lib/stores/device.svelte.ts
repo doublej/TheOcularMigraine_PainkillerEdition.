@@ -1,5 +1,6 @@
 import * as adb from '../bridge/adb'
 import type { Mode } from '../bridge/adb'
+import { abilitiesFor, type Abilities, type Privilege } from '../bridge/capabilities'
 import * as persistence from './persistence'
 
 export interface DeviceInfo {
@@ -181,6 +182,10 @@ let profiles = $state<GameProfile[]>(
 let connectionMode = $state<Mode>('mock')
 let serverConnected = $state(true)
 let deviceInfoIsFixture = $state(false)
+// What this route runs as, which is not what the mode says: a sideloaded app cannot write render
+// props even though its commands reach the headset. Never persisted — see probePrivilege().
+let connectionPrivilege = $state<Privilege>('none')
+const abilities = $derived(abilitiesFor(connectionPrivilege))
 
 export function getDevice() { return device }
 export function getDisplay() { return display }
@@ -188,6 +193,13 @@ export function getRecording() { return recording }
 export function getProfiles() { return profiles }
 export function getConnectionMode() { return connectionMode }
 export function getServerConnected() { return serverConnected }
+export function getPrivilege(): Privilege { return connectionPrivilege }
+
+/**
+ * What this route can actually do. Gate a control that would fail on tap; this is the pre-flight
+ * question, and does not replace the fixture/unset honesty machinery, which is the post-hoc audit.
+ */
+export function getAbilities(): Abilities { return abilities }
 
 /** Capabilities of the headset that is actually attached — check `.known` before stating any of them. */
 export function getCaps(): ModelCaps { return getModelCaps(device.model) }
@@ -207,9 +219,14 @@ export function getUnsetDisplayKeys(): (keyof DisplaySettings)[] { return unsetD
 export function refreshConnectionState() {
   connectionMode = adb.getConnectionMode()
   serverConnected = adb.isServerConnected()
+  connectionPrivilege = adb.getPrivilege()
 }
 
 adb.setConnectionListener(refreshConnectionState)
+
+// Native privilege is not knowable up front, so the app asks the headset once at launch instead of
+// assuming either way. Everything else short-circuits inside the probe.
+void adb.probePrivilege().then(refreshConnectionState)
 
 export function updateDisplay(patch: Partial<DisplaySettings>) {
   Object.assign(display, patch)

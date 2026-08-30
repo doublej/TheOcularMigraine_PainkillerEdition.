@@ -19,7 +19,11 @@
   import Button from '../lib/components/ui/Button.svelte'
   import Toggle from '../lib/components/ui/Toggle.svelte'
   import AppPicker from '../lib/components/ui/AppPicker.svelte'
-  import { getDevice, getConnectionMode, isDemoMode, isDeviceInfoFixture, refreshDevice } from '../lib/stores/device.svelte'
+  import {
+    getDevice, getConnectionMode, isDemoMode, isDeviceInfoFixture, refreshDevice,
+    getAbilities, getPrivilege,
+  } from '../lib/stores/device.svelte'
+  import { whyNot } from '../lib/bridge/capabilities'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
@@ -30,6 +34,13 @@
 
   const device = $derived(getDevice())
   const nativeMode = $derived(getConnectionMode() === 'native')
+
+  /**
+   * What this route can actually run. A control that would fail on tap is disabled rather than
+   * left to toast a failure; a read that comes back partial is explained instead, which is why
+   * Device Info below is never gated — Promise.allSettled plus show() already renders it honestly.
+   */
+  const can = $derived(getAbilities())
 
   let sectionTop: HTMLElement | undefined = $state()
 
@@ -714,6 +725,12 @@
       {#if deviceError}
         <p class="error-line">Could not read the headset — {deviceError}</p>
       {/if}
+      {#if !can.deviceServices}
+        <p class="hint">
+          Battery, Wi‑Fi and storage read blank here. {whyNot('deviceServices', getPrivilege())}
+          Model and OS build come from a different call and still read.
+        </p>
+      {/if}
       <div class="stats-grid">
         <div class="stat">
           <span class="stat-label">Model</span>
@@ -748,22 +765,27 @@
 
     <Card title="Quick Actions">
       <p class="hint">Common system operations for the headset.</p>
+      {#if !can.controlApps}
+        <p class="hint">
+          Most of these are switched off. {whyNot('controlApps', getPrivilege())}
+        </p>
+      {/if}
       <div class="sys-actions">
-        <button class="sys-btn" disabled={!!pending} onclick={readBatteryDetail}>
+        <button class="sys-btn" disabled={!!pending || !can.deviceServices} onclick={readBatteryDetail}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="7" width="16" height="10" rx="2" />
             <line x1="21" y1="10" x2="21" y2="14" />
           </svg>
           <span>{pending === 'battery' ? 'Reading…' : 'Battery detail'}</span>
         </button>
-        <button class="sys-btn" class:armed={armed === 'screen'} disabled={!!pending} onclick={() => armAction('screen', toggleHeadsetScreen)}>
+        <button class="sys-btn" class:armed={armed === 'screen'} disabled={!!pending || !can.controlApps} onclick={() => armAction('screen', toggleHeadsetScreen)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18.36 6.64a9 9 0 11-12.73 0" />
             <line x1="12" y1="2" x2="12" y2="12" />
           </svg>
           <span>{armed === 'screen' ? 'Tap again' : 'Sleep or wake screen'}</span>
         </button>
-        <button class="sys-btn" class:armed={armed === 'home'} disabled={!!pending} onclick={() => armAction('home', restartQuestMenu)}>
+        <button class="sys-btn" class:armed={armed === 'home'} disabled={!!pending || !can.controlApps} onclick={() => armAction('home', restartQuestMenu)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
             <path d="M21 3v5h-5M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
@@ -771,7 +793,7 @@
           </svg>
           <span>{armed === 'home' ? 'Tap again' : 'Restart Quest menu'}</span>
         </button>
-        <button class="sys-btn danger" class:armed={armed === 'kill'} disabled={!!pending} onclick={() => armAction('kill', closeBackgroundApps)}>
+        <button class="sys-btn danger" class:armed={armed === 'kill'} disabled={!!pending || !can.controlApps} onclick={() => armAction('kill', closeBackgroundApps)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
@@ -779,7 +801,7 @@
           </svg>
           <span>{armed === 'kill' ? 'Tap again' : 'Close background apps'}</span>
         </button>
-        <button class="sys-btn" disabled={!!pending} onclick={openAndroidSettings}>
+        <button class="sys-btn" disabled={!!pending || !can.controlApps} onclick={openAndroidSettings}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
@@ -792,7 +814,7 @@
         background apps can drop services the running game depends on.
       </p>
       <div class="danger-zone">
-        <Button variant="danger" disabled={!!pending} onclick={() => armAction('reboot', rebootHeadset)}>
+        <Button variant="danger" disabled={!!pending || !can.controlApps} onclick={() => armAction('reboot', rebootHeadset)}>
           {armed === 'reboot' ? 'Tap again to reboot' : 'Reboot headset'}
         </Button>
         <p class="hint">
@@ -826,7 +848,7 @@
         <Button disabled={!!pending} onclick={backUpSettings}>
           {pending === 'backup' ? 'Backing up…' : 'Back up now'}
         </Button>
-        <Button disabled={!!pending || !backups.length} onclick={() => armAction('restore', restoreSettings)}>
+        <Button disabled={!!pending || !backups.length || !can.writeProps} onclick={() => armAction('restore', restoreSettings)}>
           {#if pending === 'restore'}
             Restoring…
           {:else if armed === 'restore'}
@@ -839,7 +861,7 @@
       </div>
       {@render outputPane(propsOutput, false, () => propsOutput = '')}
       <div class="danger-zone">
-        <Button variant="danger" disabled={!!pending} onclick={() => armAction('erase', eraseAllSettings)}>
+        <Button variant="danger" disabled={!!pending || !can.writeProps} onclick={() => armAction('erase', eraseAllSettings)}>
           {#if pending === 'erase'}
             Erasing…
           {:else if armed === 'erase'}
@@ -865,6 +887,13 @@
     </Card>
 
   {:else if activeSection === 'apps'}
+    {#if !can.controlApps}
+      <p class="section-note">
+        Installing, launching, locking and blocking apps are all switched off here.
+        {whyNot('controlApps', getPrivilege())}
+      </p>
+    {/if}
+
     <Card title="Install APK">
       <p class="hint">{installHint}</p>
       <div class="install-row">
@@ -881,7 +910,7 @@
           bind:value={apkPath}
           onkeydown={(e) => { if (e.key === 'Enter') installApk() }}
         />
-        <Button size="sm" variant="primary" disabled={!!pending || !apkPath.trim()} onclick={installApk}>
+        <Button size="sm" variant="primary" disabled={!!pending || !apkPath.trim() || !can.installApk} onclick={installApk}>
           {pending === 'install' ? 'Installing…' : 'Install'}
         </Button>
       </div>
@@ -901,7 +930,7 @@
         description={kioskUnknown
           ? 'Could not read the headset — this switch may not match it'
           : kioskApp || 'No app chosen yet'}
-        disabled={(!kioskApp && !kioskEnabled) || !!pending}
+        disabled={(!kioskApp && !kioskEnabled) || !!pending || !can.controlApps}
         confirm={kioskEnabled ? 'Unlocks the headset' : 'Locks the headset to one app'}
         onchange={applyKiosk}
       />
@@ -923,7 +952,7 @@
         <Button size="sm" onclick={() => favouritePickerOpen = true}>
           {favouriteApp ? 'Change app' : 'Choose app'}
         </Button>
-        <Button size="sm" variant="primary" disabled={!favouriteApp || !!pending} onclick={() => launchPackage(favouriteApp)}>
+        <Button size="sm" variant="primary" disabled={!favouriteApp || !!pending || !can.controlApps} onclick={() => launchPackage(favouriteApp)}>
           Launch
         </Button>
         {#if favouriteApp}
@@ -946,16 +975,16 @@
         <p class="backup-state">{accessSummary}</p>
       {/if}
       <div class="seg">
-        <button class="seg-btn" class:active={headsetMode === 'off'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'off'}>Off</button>
-        <button class="seg-btn" class:active={headsetMode === 'allow'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'allow'}>Allow list</button>
-        <button class="seg-btn" class:active={headsetMode === 'block'} disabled={!accessReadAt || !!pending} onclick={() => requestedMode = 'block'}>Block list</button>
+        <button class="seg-btn" class:active={headsetMode === 'off'} disabled={!accessReadAt || !!pending || !can.controlApps} onclick={() => requestedMode = 'off'}>Off</button>
+        <button class="seg-btn" class:active={headsetMode === 'allow'} disabled={!accessReadAt || !!pending || !can.controlApps} onclick={() => requestedMode = 'allow'}>Allow list</button>
+        <button class="seg-btn" class:active={headsetMode === 'block'} disabled={!accessReadAt || !!pending || !can.controlApps} onclick={() => requestedMode = 'block'}>Block list</button>
       </div>
       {#if requestedMode}
         <div class="confirm-row">
           <p class="confirm-text">{accessConfirmText}</p>
           <div class="btn-row">
             <Button size="sm" onclick={() => requestedMode = null}>Cancel</Button>
-            <Button size="sm" variant="danger" disabled={!!pending} onclick={confirmAccessMode}>Apply</Button>
+            <Button size="sm" variant="danger" disabled={!!pending || !can.controlApps} onclick={confirmAccessMode}>Apply</Button>
           </div>
         </div>
       {/if}
@@ -989,7 +1018,7 @@
       <p class="hint">Open common utility apps on the headset. A tile fails if that app is not installed.</p>
       <div class="quick-grid">
         {#each Object.entries(quickApps) as [name, pkg]}
-          <button class="quick-btn" disabled={!!pending} onclick={() => launchPackage(pkg)}>
+          <button class="quick-btn" disabled={!!pending || !can.controlApps} onclick={() => launchPackage(pkg)}>
             <span class="qb-label">{name}</span>
           </button>
         {/each}
@@ -1102,6 +1131,16 @@
 </div>
 
 <style>
+  .section-note {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
   .sys {
     padding: 0 16px 28px;
     display: flex;

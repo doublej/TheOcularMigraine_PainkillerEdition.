@@ -19,8 +19,11 @@
     isDemoMode,
     getServerConnected,
     refreshConnectionState,
+    getAbilities,
+    getPrivilege,
     type RecordingSettings,
   } from '../lib/stores/device.svelte'
+  import { whyNot } from '../lib/bridge/capabilities'
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
@@ -43,6 +46,8 @@
   /** False when the headset could not be asked — never assert "idle" on a failed read. */
   let stateKnown = $state(false)
   let busy = $state(false)
+  /** Every control here writes a capture prop, so a route that cannot write them offers none of them. */
+  const can = $derived(getAbilities())
   /** Only set when this screen started the capture; a capture found already running has no known start. */
   let startedAt = $state<number | null>(null)
   let elapsed = $state(0)
@@ -335,9 +340,15 @@
     </button>
   </div>
 
+  {#if !can.writeProps}
+    <p class="rec-warn">
+      Nothing on this screen can change the headset right now. {whyNot('writeProps', getPrivilege())}
+    </p>
+  {/if}
+
   <!-- Outside the section branches: this is the only stop control in the app. -->
   <div class="record-control">
-    <button class="record-btn" class:recording={isRecording} class:capturing disabled={busy} onclick={toggleRecording}>
+    <button class="record-btn" class:recording={isRecording} class:capturing disabled={busy || !can.writeProps} onclick={toggleRecording}>
       <span class="rec-dot"></span>
       {#if busy}
         {isRecording ? 'Stopping…' : 'Starting…'}
@@ -387,7 +398,7 @@
     {/if}
 
     <!-- Rule 5: the props a start would overwrite stay locked for as long as that write runs. -->
-    <div class="settings" class:locked={isRecording || busy} inert={isRecording || busy}>
+    <div class="settings" class:locked={isRecording || busy || !can.writeProps} inert={isRecording || busy || !can.writeProps}>
       <Card title="Video size">
         {@render unsetTag('size')}
         <div class="presets">
@@ -503,7 +514,7 @@
                 </button>
                 {#if expandedProfile === profile.id}
                   <div class="rp-actions">
-                    <Button size="sm" variant="primary" disabled={isRecording || busy} onclick={() => loadRecProfile(profile)}>
+                    <Button size="sm" variant="primary" disabled={isRecording || busy || !can.writeProps} onclick={() => loadRecProfile(profile)}>
                       Load these settings
                     </Button>
                     <Button
