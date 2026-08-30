@@ -3,6 +3,7 @@
   import { getConnectionMode, getServerConnected, refreshConnectionState } from '../../stores/device.svelte'
   import { reconnect } from '../../bridge/adb'
   import { showToast } from '../../stores/toast.svelte'
+  import { t } from '../../i18n/index.svelte'
 
   /** Measured, not assumed: this bar is fixed over the scroll container and wraps on a narrow phone. */
   let { height = $bindable(0) }: { height?: number } = $props()
@@ -45,8 +46,8 @@
     reconnecting = true
     await probeBridge()
     reconnecting = false
-    if (healthy) showToast('Bridge connected', 'success')
-    else showToast('Still offline — nothing is reaching a headset', 'error')
+    if (healthy) showToast(t('conn.toast.ok'), 'success')
+    else showToast(t('conn.toast.down'), 'error')
   }
 </script>
 
@@ -62,13 +63,13 @@
   >
     <span class="dot"></span>
     {#if reconnecting}
-      Reconnecting...
+      {t('conn.reconnecting')}
     {:else if healthy}
-      Connected via PC
+      {t('conn.computer.ok')}
     {:else if mode === 'desktop'}
-      Bridge offline — nothing reaches the headset. Tap to retry.
+      {t('conn.computer.down')}
     {:else}
-      Demo — no headset. Tap to retry.
+      {t('conn.demo')}
     {/if}
   </button>
 {/if}

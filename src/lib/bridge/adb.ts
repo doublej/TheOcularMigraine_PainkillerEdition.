@@ -9,6 +9,7 @@ import { Capacitor } from '@capacitor/core'
 import { ShellExec } from '../plugins/shell-exec'
 import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
+import { t } from '../i18n/index.svelte'
 
 // Re-exported so every existing `import type { Mode } from '../bridge/adb'` keeps working, and so
 // the two axes stay in one file with no import cycle back into the bridge.
@@ -181,7 +182,7 @@ async function postBridge(path: string, body: unknown): Promise<BridgeResult> {
   } catch (e) {
     if (e instanceof TypeError) {
       setConnected(false)
-      throw new Error('bridge offline — nothing was sent to the headset')
+      throw new Error(t('bridge.offline'))
     }
     throw e
   }
@@ -189,7 +190,7 @@ async function postBridge(path: string, body: unknown): Promise<BridgeResult> {
   // and res.json() on that body throws 'Unexpected end of JSON input' instead of saying so.
   if (!res.ok) {
     setConnected(false)
-    throw new Error(`bridge did not accept the request (HTTP ${res.status}) — nothing was sent to the headset`)
+    throw new Error(t('bridge.refused', { status: res.status }))
   }
   setConnected(true)
   return res.json()
