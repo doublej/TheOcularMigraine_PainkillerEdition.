@@ -389,12 +389,20 @@
     text-decoration: underline;
   }
 
+  /* The arrows must not move between frames — the descriptions run two or three lines, and a
+     control that slides out from under the cursor mid-click is how you end up clicking nothing.
+     Wide: pinned to the top of the row, with the text block holding a constant height.
+     Narrow: the pager goes above the title, where no amount of text can push it. */
   .demo-header {
     display: flex;
-    align-items: flex-end;
+    align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 20px;
     gap: 16px;
+  }
+
+  .demo-header-text {
+    min-height: 112px;
   }
   .demo-header h2 {
     font-size: 1.4rem;
@@ -536,6 +544,12 @@
     .demo-header {
       flex-direction: column;
       align-items: flex-start;
+    }
+    .demo-nav {
+      order: -1;
+    }
+    .demo-header-text {
+      min-height: 0;
     }
   }
 </style>
