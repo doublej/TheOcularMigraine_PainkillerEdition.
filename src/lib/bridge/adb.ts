@@ -7,11 +7,12 @@
 
 import { Capacitor } from '@capacitor/core'
 import { ShellExec } from '../plugins/shell-exec'
-import type { RecordingSettings } from '../stores/device.svelte'
+import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
 
 export type Mode = 'native' | 'desktop' | 'mock'
 let mode: Mode = 'mock'
 let connected = true
+let notifyConnectionChange: (() => void) | null = null
 
 const modeReady: Promise<void> = Capacitor.isNativePlatform()
   ? (mode = 'native', Promise.resolve())
@@ -22,18 +23,41 @@ const modeReady: Promise<void> = Capacitor.isNativePlatform()
 export function getConnectionMode(): Mode { return mode }
 export function isServerConnected(): boolean { return mode !== 'desktop' || connected }
 
+/**
+ * True while every read is answered from the fixture table below instead of a headset.
+ *
+ * A view MUST NOT present a value read while this is true as device truth: no model, battery
+ * level, SSID, storage figure, firmware string, display prop or package list. Render it as
+ * "no headset attached" (or label it demo data) and offer a reconnect, the same way writes are
+ * already labelled demo. `isDeviceInfoFixture()` in the device store carries this for the
+ * headset card; call this directly for a read the store does not own, such as the app list.
+ */
+export function isFixtureRead(): boolean { return mode === 'mock' }
+
+/** Called whenever the bridge drops or comes back, so the store can update without a manual refresh. */
+export function setConnectionListener(fn: () => void): void {
+  notifyConnectionChange = fn
+}
+
+function setConnected(next: boolean): void {
+  if (connected === next) return
+  connected = next
+  notifyConnectionChange?.()
+}
+
 export async function reconnect(): Promise<void> {
   if (Capacitor.isNativePlatform()) return
   try {
     const res = await fetch('/api/ping', { signal: AbortSignal.timeout(800) })
-    if (res.ok) { mode = 'desktop'; connected = true }
-    else { mode = 'mock'; connected = false }
+    if (res.ok) { mode = 'desktop'; setConnected(true) }
+    else { mode = 'mock'; setConnected(false) }
   } catch {
     mode = 'mock'
-    connected = false
+    setConnected(false)
   }
 }
 
+// Fixtures, not a headset. Anything answered from here is flagged by isFixtureRead().
 const mockResponses: Record<string, string> = {
   'getprop ro.product.model': 'Quest 3',
   'getprop ro.build.display.id': 'SQ3A.220705.003',
@@ -51,27 +75,52 @@ const mockResponses: Record<string, string> = {
   'getprop debug.oculus.adaclocks.cpuDynamic': '1',
   'getprop debug.oculus.adaclocks.gpuDynamic': '1',
   'getprop debug.oculus.ffrDynamic': '0',
+  'getprop': '[debug.oculus.textureWidth]: [1832]\n[debug.oculus.textureHeight]: [1920]\n[debug.oculus.refreshRate]: [120]\n[debug.oculus.cpuLevel]: [3]\n[debug.oculus.gpuLevel]: [3]\n[debug.oculus.ffrLevel]: [2]',
 }
 
 function getMockResponse(command: string): string {
-  if (mockResponses[command] !== undefined) return mockResponses[command]
-  if (command.startsWith('getprop') && command.includes('debug.oculus')) return ''
-  if (command.includes('grep debug.oculus')) {
-    return '[debug.oculus.textureWidth]: [1832]\n[debug.oculus.textureHeight]: [1920]\n[debug.oculus.refreshRate]: [120]\n[debug.oculus.cpuLevel]: [3]\n[debug.oculus.gpuLevel]: [3]\n[debug.oculus.ffrLevel]: [2]'
+  return mockResponses[command] ?? ''
+}
+
+interface BridgeResult {
+  output?: string
+  error?: string
+  exitCode?: number
+}
+
+/** Posts to the dev bridge. A dead bridge is reported, never faked into a success. */
+async function postBridge(path: string, body: unknown): Promise<BridgeResult> {
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (e) {
+    if (e instanceof TypeError) {
+      setConnected(false)
+      throw new Error('bridge offline — nothing was sent to the headset')
+    }
+    throw e
   }
-  return ''
+  // A resolved fetch is not a live bridge: the Vite proxy answers 500 when nothing is listening,
+  // and res.json() on that body throws 'Unexpected end of JSON input' instead of saying so.
+  if (!res.ok) {
+    setConnected(false)
+    throw new Error(`bridge did not accept the request (HTTP ${res.status}) — nothing was sent to the headset`)
+  }
+  setConnected(true)
+  return res.json()
+}
+
+function describeFailure(command: string, r: BridgeResult): string {
+  return `${command}: ${r.error || r.output || `exited ${r.exitCode}`}`.trim()
 }
 
 async function desktopShell(command: string): Promise<string> {
-  const res = await fetch('/api/shell', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command }),
-  })
-  const data = await res.json()
-  if (data.exitCode !== 0 && data.error) {
-    throw new Error(`${command}: ${data.error}`)
-  }
+  const data = await postBridge('/api/shell', { command })
+  if (data.exitCode !== 0) throw new Error(describeFailure(command, data))
   return data.output ?? ''
 }
 
@@ -79,22 +128,10 @@ export async function shell(command: string): Promise<string> {
   await modeReady
   if (mode === 'native') {
     const result = await ShellExec.exec({ command })
-    if (result.exitCode !== 0 && result.error) {
-      throw new Error(`${command}: ${result.error}`)
-    }
+    if (result.exitCode !== 0) throw new Error(describeFailure(command, result))
     return result.output
   }
-  if (mode === 'desktop') {
-    try {
-      return await desktopShell(command)
-    } catch (e) {
-      if (e instanceof TypeError) {
-        connected = false
-        return getMockResponse(command)
-      }
-      throw e
-    }
-  }
+  if (mode === 'desktop') return desktopShell(command)
   console.log(`[mock] ${command}`)
   return getMockResponse(command)
 }
@@ -131,23 +168,19 @@ export async function setRefreshRate(hz: number): Promise<void> {
   await setprop('debug.oculus.refreshRate', hz)
 }
 
+/** Blanks every debug.oculus.* render prop. Nothing outside that namespace is touched, so kiosk props survive. */
 export async function clearAllSettings(): Promise<void> {
-  const raw = await shell("getprop | grep 'debug.oculus' | sed 's/\\[//g' | sed 's/\\].*//g'")
-  for (const prop of raw.split('\n').filter(Boolean)) {
-    await shell(`setprop ${prop.trim()} ""`)
+  for (const prop of Object.keys(await getCurrentOculusProps())) {
+    await shell(`setprop ${prop} ''`)
   }
 }
 
 export async function installApk(path: string): Promise<string> {
   await modeReady
   if (mode === 'desktop') {
-    const res = await fetch('/api/install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    })
-    const data = await res.json()
-    return data.output || data.error || ''
+    const data = await postBridge('/api/install', { path })
+    if (data.exitCode !== 0) throw new Error(describeFailure('install', data))
+    return data.output ?? ''
   }
   return shell(`pm install -r "${path}"`)
 }
@@ -200,7 +233,8 @@ export async function getWifiInfo(): Promise<{ ssid: string; ip: string; signal:
   const wifiRaw = await shell('dumpsys wifi')
   const ssid = wifiRaw.match(/SSID:\s*"?([^",]+)"?/)?.[1] ?? ''
   const signal = parseInt(wifiRaw.match(/RSSI:\s*(-?\d+)/)?.[1] ?? '0')
-  const ipRaw = await shell('ip addr show wlan0')
+  // A headset with no wlan0 interface still has an SSID worth reporting, so this read fails alone.
+  const ipRaw = await shell('ip addr show wlan0').catch(() => '')
   const ip = ipRaw.match(/inet\s+([\d.]+)/)?.[1] ?? ''
   return { ssid, ip, signal }
 }
@@ -209,7 +243,17 @@ export async function getFirmwareVersion(): Promise<string> {
   return getprop('ro.build.display.id')
 }
 
-export async function getCurrentDisplaySettings() {
+export interface DisplayReadback {
+  /** Only the props that read back with a usable value. */
+  values: Partial<DisplaySettings>
+  /** DisplaySettings keys whose prop is empty or holds junk — the headset is on its own default. */
+  unset: (keyof DisplaySettings)[]
+}
+
+type NumericDisplayKey = 'resolutionWidth' | 'resolutionHeight' | 'refreshRate' | 'cpuLevel' | 'gpuLevel' | 'ffrLevel'
+type FlagDisplayKey = 'cpuDynamic' | 'gpuDynamic' | 'ffrDynamic'
+
+export async function getCurrentDisplaySettings(): Promise<DisplayReadback> {
   const [w, h, rr, cpu, gpu, ffr, cpuD, gpuD, ffrD] = await Promise.all([
     getprop('debug.oculus.textureWidth'),
     getprop('debug.oculus.textureHeight'),
@@ -221,38 +265,55 @@ export async function getCurrentDisplaySettings() {
     getprop('debug.oculus.adaclocks.gpuDynamic'),
     getprop('debug.oculus.ffrDynamic'),
   ])
-  return {
-    ...(w ? { resolutionWidth: parseInt(w) } : {}),
-    ...(h ? { resolutionHeight: parseInt(h) } : {}),
-    ...(rr ? { refreshRate: parseInt(rr) } : {}),
-    ...(cpu ? { cpuLevel: parseInt(cpu) } : {}),
-    ...(gpu ? { gpuLevel: parseInt(gpu) } : {}),
-    ...(ffr ? { ffrLevel: parseInt(ffr) } : {}),
-    ...(cpuD ? { cpuDynamic: cpuD === '1' } : {}),
-    ...(gpuD ? { gpuDynamic: gpuD === '1' } : {}),
-    ...(ffrD ? { ffrDynamic: ffrD === '1' } : {}),
+
+  const values: Partial<DisplaySettings> = {}
+  const unset: (keyof DisplaySettings)[] = []
+
+  // setprop accepts anything, so a prop can hold a value the runtime never used. Out of domain counts as unset.
+  const readNumber = (key: NumericDisplayKey, raw: string, min: number, max: number) => {
+    const n = parseInt(raw)
+    if (raw && Number.isFinite(n) && n >= min && n <= max) values[key] = n
+    else unset.push(key)
   }
+  const readFlag = (key: FlagDisplayKey, raw: string) => {
+    if (raw) values[key] = raw === '1'
+    else unset.push(key)
+  }
+
+  readNumber('resolutionWidth', w, 512, 4096)
+  readNumber('resolutionHeight', h, 512, 4096)
+  readNumber('refreshRate', rr, 60, 120)
+  readNumber('cpuLevel', cpu, 0, 4)
+  readNumber('gpuLevel', gpu, 0, 4)
+  readNumber('ffrLevel', ffr, 0, 4)
+  readFlag('cpuDynamic', cpuD)
+  readFlag('gpuDynamic', gpuD)
+  readFlag('ffrDynamic', ffrD)
+
+  return { values, unset }
 }
 
 // --- Recording settings ---
 
 const eyeMap = { left: 0, right: 1, both: 2 } as const
 
+/** The UI works in whole percent, the fovCrop props take a 0.0-1.0 fraction. */
+function toCropFraction(percent: number): number {
+  return Math.min(1, Math.max(0, percent / 100))
+}
+
+// Sequential on purpose: a failure stops at a known prop instead of leaving a half-written capture config.
 export async function applyRecordingSettings(rec: RecordingSettings): Promise<void> {
-  await Promise.all([
-    setprop('debug.oculus.capture.width', rec.width),
-    setprop('debug.oculus.capture.height', rec.height),
-    setprop('debug.oculus.capture.bitrate', rec.bitrate * 1000),
-    setprop('debug.oculus.capture.fps', rec.framerate),
-    setprop('debug.oculus.screenCaptureEye', eyeMap[rec.eye]),
-  ])
+  await setprop('debug.oculus.capture.width', rec.width)
+  await setprop('debug.oculus.capture.height', rec.height)
+  await setprop('debug.oculus.capture.bitrate', rec.bitrate * 1000)
+  await setprop('debug.oculus.capture.fps', rec.framerate)
+  await setprop('debug.oculus.screenCaptureEye', eyeMap[rec.eye])
   if (rec.fovCrop) {
-    await Promise.all([
-      setprop('debug.oculus.fovCrop.up', rec.fovCrop.up),
-      setprop('debug.oculus.fovCrop.down', rec.fovCrop.down),
-      setprop('debug.oculus.fovCrop.inward', rec.fovCrop.inward),
-      setprop('debug.oculus.fovCrop.outward', rec.fovCrop.outward),
-    ])
+    await setprop('debug.oculus.fovCrop.up', toCropFraction(rec.fovCrop.up))
+    await setprop('debug.oculus.fovCrop.down', toCropFraction(rec.fovCrop.down))
+    await setprop('debug.oculus.fovCrop.inward', toCropFraction(rec.fovCrop.inward))
+    await setprop('debug.oculus.fovCrop.outward', toCropFraction(rec.fovCrop.outward))
   }
 }
 
@@ -268,11 +329,12 @@ export async function enablePackage(pkg: string): Promise<string> {
 
 // --- System actions ---
 
+// Filtered here rather than piped through grep: on the desktop bridge the pipe would run on the host, not the headset.
 export async function getCurrentOculusProps(): Promise<Record<string, string>> {
-  const raw = await shell("getprop | grep 'debug.oculus'")
+  const raw = await shell('getprop')
   const props: Record<string, string> = {}
-  for (const line of raw.split('\n').filter(Boolean)) {
-    const match = line.match(/\[([^\]]+)\]:\s*\[([^\]]*)\]/)
+  for (const line of raw.split('\n')) {
+    const match = line.match(/\[(debug\.oculus\.[^\]]+)\]:\s*\[([^\]]*)\]/)
     if (match) props[match[1]] = match[2]
   }
   return props
