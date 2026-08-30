@@ -27,8 +27,8 @@
 
         </activity>
 
-        <!-- Applies a game's profile at the moment that game starts. Not exported: nothing outside
-             this app has any business starting it. -->
+        <!-- Brings the launch watcher back after a reboot. Exported because the sender is the
+             system; it ignores every other broadcast. -->
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

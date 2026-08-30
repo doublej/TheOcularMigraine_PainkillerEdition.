@@ -148,6 +148,7 @@ public final class AdbChannel {
                 synchronized (this) {
                     closeClient();
                     client = connected;
+                    makeAccessPermanent(connected);
                     return publishSync(State.CONNECTED, "");
                 }
             } catch (AdbClient.AwaitingApprovalException e) {
@@ -176,6 +177,38 @@ public final class AdbChannel {
                 return publishSync(State.NO_PORT, "");
             }
         });
+    }
+
+    /**
+     * Spends the first connection on the two permissions that outlive it.
+     *
+     * Both are granted to the app itself, so they survive every later boot without the channel:
+     * WRITE_SECURE_SETTINGS lets the app turn wireless debugging back on by itself, and the
+     * usage-stats appop is what lets the launch watcher see a game start. Asking here means asking
+     * once, while there is privilege to ask with, rather than at the moment each is needed.
+     *
+     * The port itself is handled in elevate() on the TypeScript side, deliberately not through
+     * setprop(), so it is not repeated here.
+     *
+     * Failures are logged and swallowed on purpose. This runs on a connection that already
+     * succeeded, and a refused bootstrap command is not a reason to throw that connection away.
+     */
+    private void makeAccessPermanent(AdbClient live) {
+        String pkg = context.getPackageName();
+        String[] commands = {
+            "pm grant " + pkg + " android.permission.WRITE_SECURE_SETTINGS",
+            "appops set " + pkg + " android:get_usage_stats allow",
+        };
+        for (String command : commands) {
+            try {
+                AdbClient.ShellResult result = live.shell(command);
+                if (result.exitCode != 0) {
+                    Log.w(TAG, "bootstrap refused: " + command + " -> " + result.output.trim());
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "bootstrap failed: " + command, e);
+            }
+        }
     }
 
     /**

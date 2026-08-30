@@ -49,6 +49,7 @@ public class LaunchWatcherService extends Service {
     /** How far back the first poll looks, so a launch during startup is not missed. */
     private static final long LOOKBACK_MS = 10_000;
     private static final long SHELL_TIMEOUT_S = 15;
+    private static final long RECONNECT_TIMEOUT_S = 10;
 
     /** Leaving a game lands here, and that is what re-arms a profile for the next launch. */
     private static final String HOME_PACKAGE = "com.oculus.vrshell";
@@ -77,6 +78,10 @@ public class LaunchWatcherService extends Service {
         running = true;
         prefs().edit().putBoolean(KEY_RUNNING, true).apply();
         cursor = System.currentTimeMillis() - LOOKBACK_MS;
+        // After a reboot this service is the first thing up, so nothing else has opened the
+        // channel yet. The port comes back on its own (persist.adb.tcp.port) and the headset still
+        // trusts this app's key, so the reconnect is silent.
+        AdbChannel.get(this).reconnectSilently();
         poller = new Thread(this::loop, "launch-watcher");
         poller.setDaemon(true);
         poller.start();
@@ -168,6 +173,15 @@ public class LaunchWatcherService extends Service {
         }
 
         AdbChannel channel = AdbChannel.get(this);
+        if (!channel.isConnected()) {
+            // One retry rather than a bare failure: a dropped channel is the ordinary case right
+            // after a boot, and the key is stored, so getting it back costs nothing but a moment.
+            try {
+                channel.reconnectSilently().get(RECONNECT_TIMEOUT_S, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+                // Reported by the isConnected check below, in one place.
+            }
+        }
         if (!channel.isConnected()) {
             // Said plainly rather than retried: without the privileged channel setprop is refused,
             // and a silent failure here is exactly the kind of lie this app is built to avoid.
