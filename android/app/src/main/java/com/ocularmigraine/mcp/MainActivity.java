@@ -7,6 +7,7 @@ import com.ocularmigraine.mcp.plugins.AutoProfilePlugin;
 import com.ocularmigraine.mcp.plugins.DeviceInfoPlugin;
 import com.ocularmigraine.mcp.plugins.FileServerPlugin;
 import com.ocularmigraine.mcp.plugins.ShellExecPlugin;
+import com.ocularmigraine.mcp.plugins.VideoPlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -17,6 +18,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppsPlugin.class);
         registerPlugin(AutoProfilePlugin.class);
         registerPlugin(FileServerPlugin.class);
+        registerPlugin(VideoPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

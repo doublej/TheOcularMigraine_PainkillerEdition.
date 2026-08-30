@@ -116,3 +116,18 @@ export interface FileServerPlugin {
 }
 
 export const FileServer = registerPlugin<FileServerPlugin>('FileServer')
+
+export interface Capture {
+  path: string
+  name: string
+  bytes: number
+  modified: number
+}
+
+export interface VideoPlugin {
+  listCaptures(): Promise<{ videos: Capture[]; folder: string; canRead: boolean }>
+  /** Writes a marked copy beside the captures and answers with where it landed. */
+  markStereo(options: { path: string; topBottom?: boolean }): Promise<{ path: string; name: string; bytes: number }>
+}
+
+export const Video = registerPlugin<VideoPlugin>('Video')

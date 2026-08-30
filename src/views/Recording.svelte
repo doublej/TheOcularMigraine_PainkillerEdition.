@@ -12,6 +12,7 @@
   import Button from '../lib/components/ui/Button.svelte'
   import Slider from '../lib/components/ui/Slider.svelte'
   import {
+    getConnectionMode,
     getDevice,
     getRecording,
     updateRecording,
@@ -28,6 +29,7 @@
   import { showToast } from '../lib/stores/toast.svelte'
   import * as adb from '../lib/bridge/adb'
   import * as persistence from '../lib/stores/persistence'
+  import type { Capture } from '../lib/plugins/shell-exec'
 
   /** The five capture settings this screen writes — each one is device state only once read back. */
   const CAPTURE_FIELDS = ['size', 'fps', 'bitrate', 'eye', 'crop'] as const
@@ -152,7 +154,50 @@
     return () => clearTimeout(id)
   })
 
-  onMount(() => { void readRecordingState() })
+  onMount(() => {
+    void readRecordingState()
+    void loadCaptures()
+  })
+
+  // --- Marking a both-eyes capture as 3D ---
+
+  const onHeadset = $derived(getConnectionMode() === 'native')
+
+  let captures = $state<Capture[]>([])
+  let capturesFolder = $state('')
+  let capturesReadable = $state(true)
+  let selectedCapture = $state('')
+  let marking = $state(false)
+  let markedPath = $state('')
+
+  const megabytes = (bytes: number) => `${Math.round(bytes / 1048576)} MB`
+
+  async function loadCaptures() {
+    const result = await adb.listCaptures()
+    captures = result.videos
+    capturesFolder = result.folder
+    capturesReadable = result.canRead
+    // A file that has since been deleted must not stay selected and armed.
+    if (!captures.some(video => video.path === selectedCapture)) selectedCapture = ''
+  }
+
+  /**
+   * Reports where the copy landed rather than that it worked: the original is untouched either
+   * way, and the only useful answer is the path someone has to go and upload.
+   */
+  async function markSelected() {
+    if (!selectedCapture || marking) return
+    marking = true
+    markedPath = ''
+    try {
+      markedPath = await adb.markStereo(selectedCapture)
+      showToast(t('rec.stereo.toastDone', { path: markedPath }), 'success')
+    } catch (e) {
+      showToast(t('rec.stereo.toastFailed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    } finally {
+      marking = false
+    }
+  }
 
   /** The props are the only truth: a capture can be started from inside VR or by an earlier session. */
   async function readRecordingState() {
@@ -530,6 +575,49 @@
       </Card>
     </div>
 
+    <!-- Outside the locked block on purpose: marking a file that is already on disk needs no
+         privilege and no idle headset, so it stays usable mid-capture. -->
+    <Card title={t('rec.stereo.title')}>
+      <p class="hint lead">{t('rec.stereo.lead')}</p>
+      {#if !onHeadset}
+        <p class="hint">{t('rec.stereo.offHeadset')}</p>
+      {:else}
+        {#if rec.eye !== 'both'}
+          <p class="hint">{t('rec.stereo.notStereo')}</p>
+        {/if}
+        {#if !capturesReadable}
+          <p class="hint">{t('rec.stereo.noAccess')}</p>
+        {/if}
+        {#if captures.length === 0}
+          <p class="hint">{t('rec.stereo.none', { folder: capturesFolder || '/sdcard/Oculus/VideoShots' })}</p>
+        {:else}
+          <ul class="captures">
+            {#each captures as video}
+              <li>
+                <button
+                  class="capture"
+                  class:selected={video.path === selectedCapture}
+                  onclick={() => selectedCapture = video.path}
+                >
+                  <span class="capture-name">{video.name}</span>
+                  <span class="capture-size">{megabytes(video.bytes)}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="stereo-actions">
+          <Button size="sm" disabled={marking} onclick={loadCaptures}>{t('rec.stereo.refresh')}</Button>
+          <Button size="sm" variant="primary" disabled={!selectedCapture || marking} onclick={markSelected}>
+            {marking ? t('rec.stereo.working') : t('rec.stereo.mark')}
+          </Button>
+        </div>
+        {#if markedPath}
+          <p class="hint">{t('rec.stereo.done', { path: markedPath })}</p>
+        {/if}
+      {/if}
+    </Card>
+
   {:else}
     <Card title={t('rec.tab.profiles')}>
       <p class="hint lead">{t('rec.profiles.lead')}</p>
@@ -581,6 +669,58 @@
 </div>
 
 <style>
+  .captures {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .capture {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    padding: 8px 12px;
+    background: var(--surface-raised, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 13.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .capture.selected {
+    border-color: var(--primary);
+  }
+
+  .capture-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .capture-size {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .stereo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
   .rec {
     padding: 0 16px 28px;
     display: flex;

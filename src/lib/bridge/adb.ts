@@ -7,8 +7,8 @@
 
 import { Capacitor } from '@capacitor/core'
 import {
-  Apps, DeviceInfo, FileServer, ShellExec,
-  type Elevation, type FileServerStatus, type NativeApp, type NativeDisplay,
+  Apps, DeviceInfo, FileServer, ShellExec, Video,
+  type Capture, type Elevation, type FileServerStatus, type NativeApp, type NativeDisplay,
 } from '../plugins/shell-exec'
 import type { Mode, Privilege } from './capabilities'
 import type { DisplaySettings, RecordingSettings } from '../stores/device.svelte'
@@ -460,6 +460,27 @@ export async function getInstalledApps(): Promise<NativeApp[]> {
     versionName: '',
     enabled: true,
   }))
+}
+
+// --- Recordings ---
+
+/**
+ * The captures on the headset, and the marker that makes a both-eyes one play as 3D.
+ *
+ * Only the headset build has files to work on: nothing here is mocked, because a fixture list of
+ * videos that cannot be marked would be a list of buttons that do nothing.
+ */
+export async function listCaptures(): Promise<{ videos: Capture[]; folder: string; canRead: boolean }> {
+  await modeReady
+  if (mode !== 'native') return { videos: [], folder: '', canRead: false }
+  return Video.listCaptures()
+}
+
+/** Throws with what the file itself refused. The original is never touched — a copy is written. */
+export async function markStereo(path: string, topBottom = false): Promise<string> {
+  await modeReady
+  if (mode !== 'native') throw new Error(t('rec.stereo.offHeadset'))
+  return (await Video.markStereo({ path, topBottom })).path
 }
 
 // --- File sharing ---
