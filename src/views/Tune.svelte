@@ -273,7 +273,9 @@
   async function clearPerformance() {
     clearing = true
     try {
-      for (const prop of PERF_PROPS) await adb.setprop(prop, "''")
+      // Empty string, not the two characters `''`: setprop() quotes the value itself and then
+      // proves the write by reading it back, so a literal quote pair would never match.
+      for (const prop of PERF_PROPS) await adb.setprop(prop, '')
       // Through reportApplied like every other write here, so a demo clear cannot toast green.
       reportApplied('Performance props cleared — the headset picks its own again')
     } catch (e) {
