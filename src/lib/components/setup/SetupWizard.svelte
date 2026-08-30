@@ -2,7 +2,7 @@
   import { focusTrap } from '../../actions/focusTrap'
   import { getSetupOpen, openSetup, closeSetup, type SetupStep } from '../../stores/navigation.svelte'
   import { getConnectionMode, getPrivilege, refreshConnectionState } from '../../stores/device.svelte'
-  import { probePrivilege, elevate, getElevation } from '../../bridge/adb'
+  import { probePrivilege, elevate, getElevation, isPortPersisted } from '../../bridge/adb'
   import { abilitiesFor } from '../../bridge/capabilities'
   import { setSetupSeen } from '../../stores/persistence'
   import { t, type PlainKey } from '../../i18n/index.svelte'
@@ -34,6 +34,8 @@
   let unlocking = $state(false)
   /** null until something has actually been asked — an unasked question has no answer to show. */
   let elevation = $state<ElevationState | null>(null)
+  /** Whether the headset reopens the port itself after a restart. null until the prop has been read. */
+  let persisted = $state<boolean | null>(null)
 
   // Any dismissal counts, so the wizard never nags: it is reopened from the connection bar.
   function dismiss() {
@@ -50,12 +52,15 @@
   async function readElevation() {
     if (!onHeadset) return
     elevation = (await getElevation()).state
+    persisted = await isPortPersisted()
   }
 
   async function unlock() {
     unlocking = true
     try {
       elevation = (await elevate()).state
+      // elevate() has already tried to write it, so this reads the outcome rather than repeating it.
+      persisted = await isPortPersisted()
     } finally {
       unlocking = false
       refreshConnectionState()
@@ -111,7 +116,11 @@
           </Button>
 
           <p class="caveat">{t('setup.unlock.caveat')}</p>
-          <p class="lede">{t('setup.unlock.reboot')}</p>
+          {#if elevation === 'CONNECTED' && persisted !== null}
+            <p class="lede">{t(persisted ? 'setup.persist.on' : 'setup.persist.off')}</p>
+          {:else}
+            <p class="lede">{t('setup.unlock.reboot')}</p>
+          {/if}
         {:else}
           <h2 id="setup-heading">{t('setup.done.heading')}</h2>
           <div class="verify" aria-live="polite" aria-busy={checking}>

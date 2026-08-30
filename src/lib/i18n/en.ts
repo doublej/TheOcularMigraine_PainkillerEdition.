@@ -36,8 +36,12 @@ export const en = {
   'setup.unlock.step3': 'Back in the headset, tap Unlock below. When the headset asks “Allow debugging?”, tick “Always allow”.',
   'setup.unlock.button': 'Unlock',
   'setup.unlock.working': 'Asking the headset…',
-  'setup.unlock.caveat': 'While port 5555 is open, other devices on your network can reach this headset the same way. Nothing gets in without an approval like the one you gave. To close the port, run adb usb on the computer, or restart the headset.',
-  'setup.unlock.reboot': 'From now on the app reconnects on its own, with nothing to tap. Only a restart undoes this, and a Quest rarely restarts, it usually just sleeps. After one, the app will say so, and step 2 needs doing again.',
+  'setup.unlock.caveat': 'While port 5555 is open, other devices on your network can reach this headset the same way. Nothing gets in without an approval like the one you gave. To close it, run adb usb on the computer \u2014 and if it has started reopening on its own, run setprop persist.adb.tcp.port \'\' in the Console tab first.',
+  'setup.unlock.reboot': 'From now on the app reconnects on its own, with nothing to tap. It also asks the headset to reopen the port by itself after a restart \u2014 whether that is allowed is reported here the moment you unlock.',
+
+  // Whether the computer is needed once, or once per restart. Both come from reading the prop back.
+  'setup.persist.on': 'The headset will reopen this by itself after a restart. You still tick \u201cAllow debugging?\u201d once after each one, and the computer is never needed again.',
+  'setup.persist.off': 'This headset would not keep the port open across a restart, so step 2 needs a computer again after each one. Everything else works as normal.',
 
   // One line per state the channel can actually detect. Nothing here is a guess.
   'setup.state.DEV_MODE_OFF': 'USB debugging is off on this headset. Turn on Developer Mode in the Meta Horizon app on your phone, then try again.',
@@ -45,7 +49,7 @@ export const en = {
   'setup.state.PORT_OPEN_UNAUTHORIZED': 'The headset answered but does not trust this app yet. Tap Unlock again and watch for the “Allow debugging?” prompt.',
   'setup.state.AWAITING_USER': 'The headset is showing “Allow debugging?” right now. Tick “Always allow”.',
   'setup.state.REJECTED_OR_IGNORED': 'No answer came back. The prompt was declined, or it never appeared. The headset does not say which. Tap Unlock to ask again.',
-  'setup.state.CONNECTED': 'Unlocked. Every setting works until the headset restarts.',
+  'setup.state.CONNECTED': 'Unlocked. Every setting works.',
   'setup.state.DROPPED': 'The connection closed. Settings are locked again. Tap Unlock to reconnect.',
   'setup.state.UNSUPPORTED': 'This headset cannot be unlocked this way. The settings that need it stay switched off. Everything else keeps working.',
   'setup.check.again': 'Check again',

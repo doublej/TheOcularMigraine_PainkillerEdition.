@@ -43,7 +43,7 @@ const modeReady: Promise<void> = Capacitor.isNativePlatform()
 export function getConnectionMode(): Mode { return mode }
 export function isServerConnected(): boolean { return mode !== 'desktop' || connected }
 
-/** What this route can run as right now. Never persisted: `adb tcpip` does not survive a reboot. */
+/** What this route can run as right now. Never cached across a drop: a dead channel must not read as live. */
 export function getPrivilege(): Privilege { return privilege }
 
 // --- Elevation (the privileged channel on the headset) ---
@@ -66,7 +66,12 @@ export async function elevate(): Promise<Elevation> {
   await modeReady
   if (mode !== 'native') return NO_CHANNEL
   const result = await ShellExec.elevate()
-  if (result.state === 'CONNECTED') await probePrivilege(true)
+  if (result.state === 'CONNECTED') {
+    await probePrivilege(true)
+    // Best effort, never fatal: a headset that refuses this one prop is still unlocked. What it
+    // costs is the next restart, and the wizard reports that from the read-back rather than here.
+    await persistAdbPort()
+  }
   return result
 }
 
@@ -76,6 +81,37 @@ export async function endElevation(): Promise<Elevation> {
   const result = await ShellExec.disconnect()
   await probePrivilege(true)
   return result
+}
+
+/**
+ * `adb tcpip 5555` sets `service.adb.tcp.port`, which is gone at the next boot — which is the whole
+ * reason a computer was needed again after every restart. adbd reads `persist.adb.tcp.port` on
+ * every start and binds the same port from it, so writing it once moves the port from "opened by a
+ * computer" to "opened by the headset". The trusted key already survives a reboot, so what is left
+ * after one is the headset's own "Allow debugging?" prompt, and no computer at all.
+ */
+const ADB_PORT_PROP = 'persist.adb.tcp.port'
+export const ADB_PORT = 5555
+
+/** Whether the headset will reopen the port itself. Read from the prop, never inferred from a write. */
+export async function isPortPersisted(): Promise<boolean> {
+  await modeReady
+  if (mode !== 'native') return false
+  return (await getprop(ADB_PORT_PROP).catch(() => '')) === String(ADB_PORT)
+}
+
+/**
+ * Writes it, then answers with what the headset actually holds.
+ *
+ * Deliberately not through setprop(): that guard demotes the whole app to 'app' on any refused
+ * write, and this prop sits in a different SELinux context to debug.oculus.* — a headset that
+ * refuses this one still writes render props perfectly well, and must not lose its Tune tab for it.
+ */
+export async function persistAdbPort(): Promise<boolean> {
+  await modeReady
+  if (mode !== 'native') return false
+  await shell(`setprop ${ADB_PORT_PROP} ${ADB_PORT}`).catch(() => '')
+  return isPortPersisted()
 }
 
 // A dropped connection is the dangerous state: every gated control has to go back to disabled the

@@ -38,7 +38,7 @@ public final class AdbChannel {
 
     private static final String TAG = "TomAdb";
 
-    /** adbd binds this on `adb tcpip 5555`. It does not survive a reboot. */
+    /** adbd binds this on `adb tcpip 5555`, and again at every boot once persist.adb.tcp.port holds it. */
     public static final int PORT = 5555;
     private static final String HOST = "127.0.0.1";
     /** Past this, a prompt that has not been answered was never going to be. */
