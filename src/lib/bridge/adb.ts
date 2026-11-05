@@ -75,6 +75,21 @@ export async function elevate(): Promise<Elevation> {
   return result
 }
 
+/**
+ * Retries the stored key without offering it, so nobody is prompted.
+ *
+ * That is the difference that lets the wizard poll: the port opening is the only thing being
+ * waited for, and someone who has already trusted this app once should not have to walk back to
+ * the headset and tap Unlock to notice.
+ */
+export async function reconnectElevation(): Promise<Elevation> {
+  await modeReady
+  if (mode !== 'native') return NO_CHANNEL
+  const result = await ShellExec.reconnect()
+  if (result.state === 'CONNECTED') await probePrivilege(true)
+  return result
+}
+
 export async function endElevation(): Promise<Elevation> {
   await modeReady
   if (mode !== 'native') return NO_CHANNEL

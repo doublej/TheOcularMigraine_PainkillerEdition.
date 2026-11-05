@@ -8,6 +8,7 @@
   import { getActiveTab, openSetup } from './lib/stores/navigation.svelte'
   import { getDevice, refreshConnectionState } from './lib/stores/device.svelte'
   import { probePrivilege } from './lib/bridge/adb'
+  import { getBlocker, refreshSetupState } from './lib/bridge/setup-state.svelte'
   import { getSetupSeen } from './lib/stores/persistence'
   import Tune from './views/Tune.svelte'
   import Recording from './views/Recording.svelte'
@@ -15,14 +16,28 @@
 
   const device = $derived(getDevice())
 
-  // First run opens the wizard only once the probe has settled: the mode comes from an async
-  // 800ms ping, so opening at t=0 would teach the user a lie about their own route.
-  if (!getSetupSeen()) {
-    void probePrivilege().then(() => {
-      refreshConnectionState()
+  /**
+   * The wizard opens for one reason: the app is genuinely blocked.
+   *
+   * "Seen once, never again" was the wrong rule for a headset that closes the port at every
+   * restart — it made the one state the wizard exists for the one state it stayed shut for, and
+   * left people in front of a Tune tab that did nothing. So: blocked opens it, once per launch and
+   * dismissible; not blocked still respects a single dismissal forever. `degraded` counts as not
+   * blocked on purpose — the bar says it, and it is not worth a modal on every launch.
+   *
+   * It waits for the probe either way: the mode comes from an async 800ms ping, so opening at t=0
+   * would teach the user a lie about their own route.
+   */
+  void probePrivilege().then(async () => {
+    refreshConnectionState()
+    await refreshSetupState()
+    const blocker = getBlocker()
+    if (blocker === 'ready' || blocker === 'degraded') {
+      if (!getSetupSeen()) openSetup()
+    } else {
       openSetup()
-    })
-  }
+    }
+  })
   let contentEl: HTMLElement | undefined = $state()
 
   // The offline bar is fixed over this container and wraps to two lines on a narrow phone, so the

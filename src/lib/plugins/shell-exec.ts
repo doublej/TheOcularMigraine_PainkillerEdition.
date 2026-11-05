@@ -31,6 +31,8 @@ export interface ShellExecPlugin {
   }>
   elevationState(): Promise<Elevation>
   elevate(): Promise<Elevation>
+  /** Retries the stored key without offering it, so nobody is prompted. Safe to call on a timer. */
+  reconnect(): Promise<Elevation>
   disconnect(): Promise<Elevation>
   addListener(
     event: 'elevationChange',

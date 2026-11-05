@@ -118,6 +118,25 @@ public class ShellExecPlugin extends Plugin {
         call.resolve(result);
     }
 
+    /**
+     * Retries the stored key without offering it, so nobody is prompted.
+     *
+     * That is what makes it safe to call on a timer: the wizard polls this while it waits for a
+     * computer to open the port, and connects the moment one does, with nothing to walk back and tap.
+     */
+    @PluginMethod
+    public void reconnect(PluginCall call) {
+        try {
+            AdbChannel.State state = channel.reconnectSilently().get(20, TimeUnit.SECONDS);
+            JSObject result = new JSObject();
+            result.put("state", state.name());
+            result.put("detail", channel.detail());
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Could not reconnect: " + rootMessage(e));
+        }
+    }
+
     @PluginMethod
     public void elevate(PluginCall call) {
         try {

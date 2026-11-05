@@ -182,11 +182,18 @@ public final class AdbChannel {
     /**
      * Spends the first connection on the two permissions that outlive it.
      *
-     * All three are held by the app itself, so they survive every later boot without the channel:
-     * WRITE_SECURE_SETTINGS lets the app turn wireless debugging back on by itself, the usage-stats
-     * appop is what lets the launch watcher see a game start, and the doze exemption is what keeps
-     * that watcher alive. Asking here means asking once, while there is privilege to ask with,
-     * rather than at the moment each is needed.
+     * All three are held by the app itself, so they survive every later boot without the channel.
+     * The usage-stats appop is what lets the launch watcher see a game start, and the doze
+     * exemption is what keeps that watcher alive. Asking here means asking once, while there is
+     * privilege to ask with, rather than at the moment each is needed.
+     *
+     * WRITE_SECURE_SETTINGS was taken here as "the lever for turning wireless debugging back on".
+     * It is not one on this firmware: measured on a Quest 3, `adb_wifi_enabled` is accepted and
+     * then reset to 0 by the system within seconds, `service.adb.tls.port` never appears, and every
+     * persist.* write is refused to the shell context. No TLS server starts, so there is nothing to
+     * pair with and no way to reopen the port from inside the headset. The grant is kept because
+     * other secure settings may want it, not because it saves anyone the computer. A computer is
+     * needed once per reboot, permanently.
      *
      * The doze line is not housekeeping. petermg's install notes single it out: the Quest
      * "optimizes" this app soon after install, which kills it in the background and "prevents the
@@ -199,6 +206,20 @@ public final class AdbChannel {
      * Failures are logged and swallowed on purpose. This runs on a connection that already
      * succeeded, and a refused bootstrap command is not a reason to throw that connection away.
      */
+    /**
+     * Runs the same bootstrap again on the live connection.
+     *
+     * makeAccessPermanent() fires once per connect and reports nothing, so a grant that was refused
+     * then, or revoked since, stayed broken with no way back short of disconnecting. This is that
+     * way back: same commands, same swallowing, on demand.
+     */
+    public Future<Boolean> repairAccess() {
+        return submit(() -> {
+            makeAccessPermanent(requireClient());
+            return true;
+        });
+    }
+
     private void makeAccessPermanent(AdbClient live) {
         String pkg = context.getPackageName();
         String[] commands = {

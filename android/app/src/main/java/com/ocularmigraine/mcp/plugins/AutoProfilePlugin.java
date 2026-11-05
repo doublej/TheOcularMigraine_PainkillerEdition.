@@ -1,9 +1,12 @@
 package com.ocularmigraine.mcp.plugins;
 
+import android.Manifest;
 import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.PowerManager;
 import android.os.Process;
 
 import com.getcapacitor.JSObject;
@@ -94,6 +97,45 @@ public class AutoProfilePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Could not grant usage access: " + e.getMessage());
         }
+    }
+
+    /**
+     * What the app actually holds right now, each asked of the framework rather than remembered.
+     *
+     * The bootstrap in AdbChannel fires once per connect and reports nothing, so until now a
+     * refused or revoked grant was invisible — the launch watcher simply stopped working an hour
+     * after install and said nothing. A checklist is only worth reading if every row is measured.
+     */
+    @PluginMethod
+    public void grants(PluginCall call) {
+        call.resolve(grants());
+    }
+
+    /** Re-runs the bootstrap through the channel, then answers with what it changed. */
+    @PluginMethod
+    public void repairGrants(PluginCall call) {
+        AdbChannel channel = AdbChannel.get(getContext());
+        if (!channel.isConnected()) {
+            call.reject("The headset is not unlocked, so nothing can be granted");
+            return;
+        }
+        try {
+            channel.repairAccess().get(SHELL_TIMEOUT_S, TimeUnit.SECONDS);
+            call.resolve(grants());
+        } catch (Exception e) {
+            call.reject("Could not grant these again: " + e.getMessage());
+        }
+    }
+
+    private JSObject grants() {
+        PowerManager power = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+        String pkg = getContext().getPackageName();
+        JSObject result = new JSObject();
+        result.put("doze", power != null && power.isIgnoringBatteryOptimizations(pkg));
+        result.put("usageAccess", hasUsageAccess());
+        result.put("secureSettings", getContext().checkSelfPermission(
+            Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED);
+        return result;
     }
 
     private JSObject status() {

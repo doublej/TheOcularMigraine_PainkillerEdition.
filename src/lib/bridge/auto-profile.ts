@@ -9,11 +9,13 @@
  * service, no usage access and no headset to write to.
  */
 import { Capacitor } from '@capacitor/core'
-import { AutoProfile, type AutoProfileStatus, type NativeProfile } from '../plugins/auto-profile'
+import { AutoProfile, type AutoProfileStatus, type Grants, type NativeProfile } from '../plugins/auto-profile'
 import { DISPLAY_PROPS } from './adb'
 import type { DisplaySettings, GameProfile } from '../stores/device.svelte'
 
 const NOT_ON_HEADSET: AutoProfileStatus = { usageAccess: false, running: false, elevated: false }
+/** Off the headset nothing has been granted, because there is nothing to grant it to. */
+const NO_GRANTS: Grants = { doze: false, usageAccess: false, secureSettings: false }
 
 /** True only where a service can exist. Every other route answers honestly instead of pretending. */
 export function canAutoApply(): boolean {
@@ -69,4 +71,14 @@ export async function stopWatching(): Promise<AutoProfileStatus> {
 export async function grantUsageAccess(): Promise<AutoProfileStatus> {
   if (!canAutoApply()) return NOT_ON_HEADSET
   return AutoProfile.grantUsageAccess()
+}
+
+export async function getGrants(): Promise<Grants> {
+  if (!canAutoApply()) return NO_GRANTS
+  return AutoProfile.grants()
+}
+
+export async function repairGrants(): Promise<Grants> {
+  if (!canAutoApply()) return NO_GRANTS
+  return AutoProfile.repairGrants()
 }

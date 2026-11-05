@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getConnectionMode, getServerConnected, getPrivilege, refreshConnectionState } from '../../stores/device.svelte'
+  import { getConnectionMode, getServerConnected, refreshConnectionState } from '../../stores/device.svelte'
   import { openSetup } from '../../stores/navigation.svelte'
   import { reconnect } from '../../bridge/adb'
+  import { getBlocker, BLOCKER_LINE } from '../../bridge/setup-state.svelte'
   import { showToast } from '../../stores/toast.svelte'
   import { t } from '../../i18n/index.svelte'
 
@@ -14,15 +15,17 @@
 
   let mode = $derived(getConnectionMode())
   let connected = $derived(getServerConnected())
-  let privilege = $derived(getPrivilege())
   let misses = $state(0)
   /**
-   * Health is a privilege question, not a transport one: a sideloaded build reaches the headset
-   * and still cannot change it. This bar used to render nothing at all on native, which is exactly
-   * why a sideloaded user was never told anything was wrong.
+   * The same blocker the wizard and the greyed-out controls read, so the three can never disagree
+   * — they used to, most visibly after a reboot. Health is a privilege question and not a transport
+   * one: a sideloaded build reaches the headset and still cannot change it. `degraded` counts as
+   * unhealthy on purpose: connected with a grant missing is exactly the state that silently kills
+   * the launch watcher, and the bar was the only thing in a position to say so.
    */
+  let blocker = $derived(getBlocker())
   let healthy = $derived(
-    privilege === 'shell' && (mode !== 'desktop' || (connected && misses < MISS_LIMIT)),
+    blocker === 'ready' && (mode !== 'desktop' || (connected && misses < MISS_LIMIT)),
   )
   /**
    * Never silent on the headset. Hiding the bar once everything worked also removed the only way
@@ -91,12 +94,10 @@
     <span class="dot"></span>
     {#if reconnecting}
       {t('conn.reconnecting')}
-    {:else if healthy}
-      {mode === 'native' ? t('conn.headset.unlocked') : t('conn.computer.ok')}
     {:else if mode === 'desktop'}
-      {t('conn.computer.down')}
+      {healthy ? t('conn.computer.ok') : t('conn.computer.down')}
     {:else if mode === 'native'}
-      {privilege === 'none' ? t('conn.headset.dropped') : t('conn.headset.locked')}
+      {t(BLOCKER_LINE[blocker])}
     {:else}
       {t('conn.offline')}
     {/if}

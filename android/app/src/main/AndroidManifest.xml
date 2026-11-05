@@ -27,13 +27,14 @@
 
         </activity>
 
-        <!-- Brings the launch watcher back after a reboot. Exported because the sender is the
-             system; it ignores every other broadcast. -->
+        <!-- Restarts the launch watcher and opens the startup app once the headset is back.
+             Exported because the sender is the system; it ignores every other broadcast. -->
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
@@ -42,17 +43,6 @@
         <service
             android:name=".LaunchWatcherService"
             android:exported="false" />
-
-        <!-- Opens the chosen app once the headset has finished starting. Exported because the
-             sender is the system; it does nothing for any other broadcast. -->
-        <receiver
-            android:name=".BootLaunchReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
